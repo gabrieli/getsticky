@@ -40,3 +40,25 @@ coverage/
 .cache/
 .temp/
 *.tmp
+
+# Claude Code settings
+.claude/
+
+# MCP servers
+.playwright-mcp/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+server/getsticky-data/
+getsticky-data/
+
+# Test artifacts
+*.png
+screenshots/
+
+# Test documentation
+*-TEST-*.md
+TEST-*.md
+PHASE*.md
