@@ -4,6 +4,7 @@
  */
 
 import { WebSocketServer, WebSocket } from 'ws';
+import { IncomingMessage } from 'http';
 import { DatabaseManager } from '../db/index';
 import { v4 as uuidv4 } from 'uuid';
 import Anthropic from '@anthropic-ai/sdk';
@@ -15,16 +16,17 @@ const VALID_WS_TYPES = new Set([
   'add_context', 'search_context',
   'ask_claude', 'comment_ask_claude',
   'get_settings', 'update_settings',
+  'create_board', 'delete_board', 'list_boards',
 ]);
 
 export interface WSMessage {
-  type: 'create_node' | 'update_node' | 'delete_node' | 'create_edge' | 'delete_edge' | 'add_context' | 'search_context' | 'ask_claude' | 'comment_ask_claude' | 'get_settings' | 'update_settings';
+  type: 'create_node' | 'update_node' | 'delete_node' | 'create_edge' | 'delete_edge' | 'add_context' | 'search_context' | 'ask_claude' | 'comment_ask_claude' | 'get_settings' | 'update_settings' | 'create_board' | 'delete_board' | 'list_boards';
   data: any;
   id?: string;
 }
 
 export interface WSResponse {
-  type: 'success' | 'error' | 'node_created' | 'node_updated' | 'node_deleted' | 'edge_created' | 'edge_deleted' | 'context_added' | 'search_results' | 'claude_response' | 'claude_streaming' | 'comment_claude_response' | 'settings';
+  type: 'success' | 'error' | 'node_created' | 'node_updated' | 'node_deleted' | 'edge_created' | 'edge_deleted' | 'context_added' | 'search_results' | 'claude_response' | 'claude_streaming' | 'comment_claude_response' | 'settings' | 'board_created' | 'board_deleted' | 'boards_list';
   data?: any;
   error?: string;
   requestId?: string;
@@ -47,7 +49,8 @@ function getMaskedSettings(db: DatabaseManager): Record<string, string> {
 export class GetStickyWSServer {
   private wss: WebSocketServer;
   private db: DatabaseManager;
-  private clients: Set<WebSocket> = new Set();
+  private boardClients: Map<string, Set<WebSocket>> = new Map();
+  private clientBoard: Map<WebSocket, string> = new Map();
   private anthropic: Anthropic | null = null;
 
   constructor(port: number, db: DatabaseManager, anthropicApiKey?: string) {
@@ -64,10 +67,39 @@ export class GetStickyWSServer {
     this.setupServer();
   }
 
+  private getBoardId(ws: WebSocket): string {
+    return this.clientBoard.get(ws) || 'default';
+  }
+
+  private addClientToBoard(ws: WebSocket, boardId: string): void {
+    this.clientBoard.set(ws, boardId);
+    if (!this.boardClients.has(boardId)) {
+      this.boardClients.set(boardId, new Set());
+    }
+    this.boardClients.get(boardId)!.add(ws);
+  }
+
+  private removeClient(ws: WebSocket): void {
+    const boardId = this.clientBoard.get(ws);
+    if (boardId) {
+      const clients = this.boardClients.get(boardId);
+      if (clients) {
+        clients.delete(ws);
+        if (clients.size === 0) {
+          this.boardClients.delete(boardId);
+        }
+      }
+    }
+    this.clientBoard.delete(ws);
+  }
+
   private setupServer(): void {
-    this.wss.on('connection', (ws: WebSocket) => {
-      console.log('Client connected');
-      this.clients.add(ws);
+    this.wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
+      const url = new URL(req.url || '', `http://${req.headers.host}`);
+      const boardId = url.searchParams.get('board') || 'default';
+
+      console.log(`Client connected to board: ${boardId}`);
+      this.addClientToBoard(ws, boardId);
 
       ws.on('message', async (data: string) => {
         try {
@@ -95,16 +127,16 @@ export class GetStickyWSServer {
       });
 
       ws.on('close', () => {
-        console.log('Client disconnected');
-        this.clients.delete(ws);
+        console.log(`Client disconnected from board: ${boardId}`);
+        this.removeClient(ws);
       });
 
       ws.on('error', (error) => {
         console.error('WebSocket error:', error);
-        this.clients.delete(ws);
+        this.removeClient(ws);
       });
 
-      // Send initial state
+      // Send initial state for this board
       this.sendInitialState(ws);
     });
 
@@ -112,7 +144,8 @@ export class GetStickyWSServer {
   }
 
   private async sendInitialState(ws: WebSocket): Promise<void> {
-    const graph = this.db.exportGraph();
+    const boardId = this.getBoardId(ws);
+    const graph = this.db.exportGraph(boardId);
     this.send(ws, {
       type: 'success',
       data: {
@@ -126,8 +159,54 @@ export class GetStickyWSServer {
   private async handleMessage(ws: WebSocket, message: WSMessage): Promise<void> {
     const requestId = message.id;
 
+    const boardId = this.getBoardId(ws);
+
     try {
       switch (message.type) {
+        case 'create_board': {
+          const { name, id } = message.data;
+          if (!name) {
+            this.sendError(ws, 'Board name is required', requestId);
+            return;
+          }
+          const board = this.db.createBoard(id || uuidv4(), name);
+          this.send(ws, {
+            type: 'board_created',
+            data: board,
+            requestId,
+          });
+          break;
+        }
+
+        case 'delete_board': {
+          const { id } = message.data;
+          if (!id) {
+            this.sendError(ws, 'Board ID is required', requestId);
+            return;
+          }
+          const success = await this.db.deleteBoard(id);
+          if (!success) {
+            this.sendError(ws, `Board not found: ${id}`, requestId);
+            return;
+          }
+          this.send(ws, {
+            type: 'board_deleted',
+            data: { id },
+            requestId,
+          });
+          break;
+        }
+
+        case 'list_boards': {
+          const boards = this.db.getAllBoards();
+          this.send(ws, {
+            type: 'boards_list',
+            data: boards,
+            requestId,
+          });
+          break;
+        }
+
         case 'create_node': {
           const { type, content, data: nodeData, context, parent_id, parentId, position } = message.data;
           // Support both MCP format (content) and frontend format (data + position)
@@ -141,14 +220,15 @@ export class GetStickyWSServer {
             content: JSON.stringify(nodeContent),
             context: context || '',
             parent_id: parent_id || parentId || null,
+            board_id: boardId,
           });
 
-          // Broadcast to all clients
-          this.broadcast({
+          // Broadcast to clients on the same board
+          this.broadcastToBoard({
             type: 'node_created',
             data: node,
             requestId,
-          });
+          }, boardId);
           break;
         }
 
@@ -178,11 +258,11 @@ export class GetStickyWSServer {
             return;
           }
 
-          this.broadcast({
+          this.broadcastToBoard({
             type: 'node_updated',
             data: node,
             requestId,
-          });
+          }, boardId);
           break;
         }
 
@@ -195,11 +275,11 @@ export class GetStickyWSServer {
             return;
           }
 
-          this.broadcast({
+          this.broadcastToBoard({
             type: 'node_deleted',
             data: { id },
             requestId,
-          });
+          }, boardId);
           break;
         }
 
@@ -212,11 +292,11 @@ export class GetStickyWSServer {
             label: label || null,
           });
 
-          this.broadcast({
+          this.broadcastToBoard({
             type: 'edge_created',
             data: edge,
             requestId,
-          });
+          }, boardId);
           break;
         }
 
@@ -229,11 +309,11 @@ export class GetStickyWSServer {
             return;
           }
 
-          this.broadcast({
+          this.broadcastToBoard({
             type: 'edge_deleted',
             data: { id },
             requestId,
-          });
+          }, boardId);
           break;
         }
 
@@ -241,17 +321,17 @@ export class GetStickyWSServer {
           const { node_id, text, source } = message.data;
           await this.db.addContext(node_id, text, source);
 
-          this.broadcast({
+          this.broadcastToBoard({
             type: 'context_added',
             data: { node_id, text, source },
             requestId,
-          });
+          }, boardId);
           break;
         }
 
         case 'search_context': {
           const { query, limit = 5 } = message.data;
-          const results = await this.db.searchContext(query, limit);
+          const results = await this.db.searchContext(query, limit, boardId);
 
           this.send(ws, {
             type: 'search_results',
@@ -303,7 +383,7 @@ export class GetStickyWSServer {
             console.log('Anthropic client reinitialized with new API key');
           }
 
-          this.broadcast({
+          this.broadcastToAll({
             type: 'settings',
             data: getMaskedSettings(this.db),
             requestId,
@@ -325,13 +405,27 @@ export class GetStickyWSServer {
     }
   }
 
-  private broadcast(response: WSResponse): void {
+  private broadcastToBoard(response: WSResponse, boardId: string): void {
     const message = JSON.stringify(response);
-    this.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
+    const clients = this.boardClients.get(boardId);
+    if (clients) {
+      clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(message);
+        }
+      });
+    }
+  }
+
+  private broadcastToAll(response: WSResponse): void {
+    const message = JSON.stringify(response);
+    for (const clients of this.boardClients.values()) {
+      clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(message);
+        }
+      });
+    }
   }
 
   private sendError(ws: WebSocket, error: string, requestId?: string): void {
@@ -350,6 +444,7 @@ export class GetStickyWSServer {
     response: string,
     parent_id: string | undefined,
     node_position: { x: number; y: number } | undefined,
+    boardId: string,
     requestId?: string,
   ): Promise<void> {
     const agentNode = await this.db.createNode({
@@ -358,6 +453,7 @@ export class GetStickyWSServer {
       content: JSON.stringify({ question, response, position: node_position }),
       context: response,
       parent_id: parent_id || null,
+      board_id: boardId,
     });
 
     if (parent_id) {
@@ -367,15 +463,15 @@ export class GetStickyWSServer {
         target_id: agentNode.id,
         label: 'response',
       });
-      this.broadcast({ type: 'edge_created', data: edge, requestId });
+      this.broadcastToBoard({ type: 'edge_created', data: edge, requestId }, boardId);
     }
 
     const agentName = this.db.getSetting('agent_name') || 'Claude';
-    this.broadcast({
+    this.broadcastToBoard({
       type: 'claude_response',
       data: { node: agentNode, complete: true, agentName },
       requestId,
-    });
+    }, boardId);
   }
 
   /**
@@ -430,7 +526,8 @@ export class GetStickyWSServer {
         });
 
         await stream.finalMessage();
-        await this.createAndBroadcastAgentNode(question, fullResponse, parent_id, node_position, requestId);
+        const streamBoardId = this.getBoardId(ws);
+        await this.createAndBroadcastAgentNode(question, fullResponse, parent_id, node_position, streamBoardId, requestId);
       } else {
         const message = await this.anthropic.messages.create({
           model: 'claude-sonnet-4-20250514',
@@ -440,7 +537,8 @@ export class GetStickyWSServer {
         });
 
         const response = message.content[0].type === 'text' ? message.content[0].text : '';
-        await this.createAndBroadcastAgentNode(question, response, parent_id, node_position, requestId);
+        const nonStreamBoardId = this.getBoardId(ws);
+        await this.createAndBroadcastAgentNode(question, response, parent_id, node_position, nonStreamBoardId, requestId);
       }
     } catch (error: any) {
       console.error('Claude API error:', error);
@@ -513,7 +611,11 @@ export class GetStickyWSServer {
   }
 
   close(): void {
-    this.clients.forEach((client) => client.close());
+    for (const clients of this.boardClients.values()) {
+      clients.forEach((client) => client.close());
+    }
+    this.boardClients.clear();
+    this.clientBoard.clear();
     this.wss.close();
   }
 }

@@ -2,7 +2,14 @@
  * Core types for GetSticky nodes and context storage
  */
 
-export type NodeType = 'conversation' | 'diagram' | 'diagramBox' | 'container' | 'terminal' | 'richtext';
+export type NodeType = 'conversation' | 'diagram' | 'diagramBox' | 'container' | 'terminal' | 'richtext' | 'stickyNote';
+
+export interface Board {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface Node {
   id: string;
@@ -10,6 +17,7 @@ export interface Node {
   content: string; // JSON blob of node-specific data
   context: string;  // accumulated context for this node
   parent_id: string | null; // for conversation branching
+  board_id: string;
   created_at: string;
   updated_at: string;
 }
@@ -33,6 +41,7 @@ export interface ContextEntry {
 
 export interface VectorContext {
   nodeId: string;
+  boardId: string;
   text: string;
   vector: number[]; // embedding vector
   source: ContextSource;
@@ -90,4 +99,10 @@ export interface ContainerContent {
   title?: string;
   width?: number;
   height?: number;
+}
+
+export interface StickyNoteContent {
+  text: string;
+  color: string;
+  position?: { x: number; y: number };
 }

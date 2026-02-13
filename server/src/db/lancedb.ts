@@ -52,13 +52,14 @@ export class LanceDBManager {
       // LanceDB requires at least one row to create table with schema
       const initialData: VectorContext[] = [{
         nodeId: '_init',
+        boardId: 'default',
         text: 'Initial context entry',
         vector: await this.generateEmbedding('Initial context entry'),
         source: 'agent' as ContextSource,
         createdAt: new Date(),
       }];
 
-      this.table = await this.db.createTable(this.tableName, initialData);
+      this.table = await this.db.createTable(this.tableName, initialData as unknown as Record<string, unknown>[]);
 
       // Delete the initialization row
       await this.table.delete('nodeId = "_init"');
@@ -91,6 +92,7 @@ export class LanceDBManager {
    */
   async addContext(context: {
     nodeId: string;
+    boardId?: string;
     text: string;
     source: ContextSource;
   }): Promise<void> {
@@ -107,13 +109,14 @@ export class LanceDBManager {
 
     const vectorContext: VectorContext = {
       nodeId: context.nodeId,
+      boardId: context.boardId || 'default',
       text: context.text,
       vector,
       source: context.source,
       createdAt: new Date(),
     };
 
-    await this.table!.add([vectorContext]);
+    await this.table!.add([vectorContext as unknown as Record<string, unknown>]);
   }
 
   /**
@@ -121,6 +124,7 @@ export class LanceDBManager {
    */
   async addContexts(contexts: Array<{
     nodeId: string;
+    boardId?: string;
     text: string;
     source: ContextSource;
   }>): Promise<void> {
@@ -135,6 +139,7 @@ export class LanceDBManager {
     const vectorContexts: VectorContext[] = await Promise.all(
       contexts.map(async (ctx) => ({
         nodeId: ctx.nodeId,
+        boardId: ctx.boardId || 'default',
         text: ctx.text,
         vector: await this.generateEmbedding(ctx.text),
         source: ctx.source,
@@ -142,13 +147,13 @@ export class LanceDBManager {
       }))
     );
 
-    await this.table!.add(vectorContexts);
+    await this.table!.add(vectorContexts as unknown as Record<string, unknown>[]);
   }
 
   /**
    * Semantic search across all contexts
    */
-  async search(query: string, limit: number = 5): Promise<VectorContext[]> {
+  async search(query: string, limit: number = 5, boardId?: string): Promise<VectorContext[]> {
     if (!this.enabled) {
       return [];
     }
@@ -159,11 +164,12 @@ export class LanceDBManager {
 
     const queryVector = await this.generateEmbedding(query);
 
-    const results = await this.table!
-      .search(queryVector)
-      .limit(limit)
-      .toArray();
+    let searchQuery = this.table!.search(queryVector).limit(limit);
+    if (boardId) {
+      searchQuery = searchQuery.where(`boardId = '${escapeFilterValue(boardId)}'`);
+    }
 
+    const results = await searchQuery.toArray();
     return results as VectorContext[];
   }
 
@@ -224,6 +230,21 @@ export class LanceDBManager {
     }
 
     await this.table!.delete(`nodeId = '${escapeFilterValue(nodeId)}'`);
+  }
+
+  /**
+   * Delete all contexts for a board
+   */
+  async deleteBoardContexts(boardId: string): Promise<void> {
+    if (!this.enabled) {
+      return;
+    }
+
+    if (!this.table) {
+      await this.init();
+    }
+
+    await this.table!.delete(`boardId = '${escapeFilterValue(boardId)}'`);
   }
 
   /**

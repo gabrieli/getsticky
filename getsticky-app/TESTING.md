@@ -346,3 +346,82 @@ See `.claude/skills/confident-coding/` for detailed confidence tracking.
 - [ ] Edge cases and errors covered
 
 Can't check all boxes? You skipped TDD. Start over.
+
+---
+
+## MCP-Based Automated Test Suites
+
+All automated testing below uses the GetSticky MCP tools directly. The MCP server shares the same SQLite database as the WebSocket server — tests via MCP exercise data persistence, node lifecycle, layout correctness, and the type system.
+
+### Suite 1: Sticky Note CRUD
+
+1. `create_node` type=`stickyNote`, content=`{ "text": "Test note", "color": "yellow", "position": { "x": 100, "y": 100 } }`
+2. `get_node` → verify text="Test note", color="yellow"
+3. `update_node` → change color to "purple"
+4. `get_node` → verify color="purple"
+5. `update_node` → change text to "Updated note"
+6. `get_node` → verify text="Updated note"
+7. `delete_node` → confirm deleted
+8. `get_node` → confirm returns "not found"
+
+### Suite 2: Sticky Note Color Variants
+
+1. Create 11 sticky notes, one per color key: yellow, blue, purple, pink, green, teal, orange, rose, lavender, sage, peach
+2. `get_all_nodes` type=`stickyNote` → verify count = 11
+3. `get_canvas_layout` → verify all 11 nodes appear with correct positions
+4. Cleanup: delete all 11
+
+### Suite 3: Copy/Paste Data Model (Stacked Positioning)
+
+1. `create_node` sticky note at position (200, 200)
+2. Create 4 "pasted" copies with offsets: (225, 225), (250, 250), (275, 275), (300, 300)
+3. `get_canvas_layout` → verify 5 nodes exist
+4. Verify overlaps are detected (expected — stacked notes overlap)
+5. Verify each node's position is offset by exactly 25px from the previous
+6. Cleanup
+
+### Suite 4: Mixed Node Types
+
+1. Create nodes of each type: stickyNote, richtext, diagram, diagramBox, conversation, terminal
+2. `get_all_nodes` → verify total count
+3. `get_all_nodes` type=`stickyNote` → verify only sticky notes returned
+4. `get_stats` → verify counts match
+5. `export_graph` → verify all nodes present in export
+6. Cleanup
+
+### Suite 5: Position and Layout
+
+1. Create 3 sticky notes at non-overlapping positions
+2. `get_canvas_layout` → verify `overlaps: "none"`
+3. `move_node` to create an overlap
+4. `get_canvas_layout` → verify overlap detected
+5. `arrange_nodes` → verify nodes rearranged to non-overlapping positions
+6. Cleanup
+
+### Suite 6: Edge Connections with Sticky Notes
+
+1. Create 2 sticky notes
+2. `create_edge` between them
+3. `export_graph` → verify edge exists
+4. Delete one note → verify edge is cascade-cleaned
+5. Cleanup
+
+### What MCP Cannot Test (Manual Verification Only)
+
+These are pure client-side interactions that require visual verification:
+
+- **Drag selection box** rendering and visual behavior
+- **Click-to-place** cursor change and click interaction
+- **Keyboard shortcuts** (Cmd+C/V) firing in the browser
+- **Contextual menu** appearing/disappearing in toolbar
+- **ContentEditable** text editing within sticky notes
+- **Folded corner** CSS visual effect
+
+### Manual Verification Checklist
+
+1. **Selection box**: Left-drag on empty canvas creates blue selection rectangle. Nodes inside are selected. Middle-click/right-click drag pans.
+2. **Sticky notes**: Click sticky note tool → click canvas → yellow sticky appears → type text → text persists on refresh.
+3. **Click-to-place**: Click any tool → cursor changes to crosshair → click on canvas → node appears there → tool deselects.
+4. **Copy/paste**: Select nodes → Cmd+C → Cmd+V → copies appear offset by 25px diagonally. Multiple Cmd+V creates a visible stack.
+5. **Contextual menu**: Select a sticky note → toolbar shows color palette → click a color → sticky note changes color. Works for multi-selection too.
+6. **End-to-end**: Create multiple sticky notes with different colors → select all with drag box → Cmd+C → Cmd+V → pasted copies retain colors and stack visually.

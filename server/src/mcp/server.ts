@@ -36,6 +36,7 @@ function getNodeDimensions(
   }
   if (type === 'richtext') return { w: 500, h: 400 };
   if (type === 'diagramBox') return { w: 180, h: 80 };
+  if (type === 'stickyNote') return { w: 200, h: 200 };
   return { w: defaultWidth, h: defaultHeight };
 }
 
@@ -57,6 +58,46 @@ function validateArgs(
 // Define MCP tools
 const tools: Tool[] = [
   {
+    name: 'create_board',
+    description: 'Create a new board for organizing nodes',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: {
+          type: 'string',
+          description: 'Board name',
+        },
+        id: {
+          type: 'string',
+          description: 'Optional board ID (auto-generated if not provided)',
+        },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'delete_board',
+    description: 'Delete a board and all its nodes, edges, and contexts. Cannot delete the default board.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Board ID to delete',
+        },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'list_boards',
+    description: 'List all boards',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
     name: 'create_node',
     description: 'Create a new node on the canvas (conversation, diagram, richtext, or terminal)',
     inputSchema: {
@@ -64,7 +105,7 @@ const tools: Tool[] = [
       properties: {
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal'],
+          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote'],
           description: 'Type of node to create',
         },
         content: {
@@ -78,6 +119,10 @@ const tools: Tool[] = [
         parent_id: {
           type: 'string',
           description: 'Parent node ID (for branching conversations)',
+        },
+        board_id: {
+          type: 'string',
+          description: 'Board ID (defaults to "default")',
         },
       },
       required: ['type', 'content'],
@@ -167,12 +212,16 @@ const tools: Tool[] = [
         },
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal'],
+          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote'],
           description: 'Type of the new branch node',
         },
         content: {
           type: 'object',
           description: 'Content for the new branch',
+        },
+        board_id: {
+          type: 'string',
+          description: 'Board ID (defaults to "default")',
         },
       },
       required: ['parent_id', 'type', 'content'],
@@ -235,6 +284,10 @@ const tools: Tool[] = [
           description: 'Maximum number of results',
           default: 5,
         },
+        board_id: {
+          type: 'string',
+          description: 'Board ID to scope search (defaults to all boards)',
+        },
       },
       required: ['query'],
     },
@@ -261,8 +314,12 @@ const tools: Tool[] = [
       properties: {
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal'],
+          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote'],
           description: 'Filter by node type (optional)',
+        },
+        board_id: {
+          type: 'string',
+          description: 'Board ID to filter by (defaults to all boards)',
         },
       },
     },
@@ -272,7 +329,12 @@ const tools: Tool[] = [
     description: 'Export the entire graph (nodes and edges) for visualization',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        board_id: {
+          type: 'string',
+          description: 'Board ID to export (defaults to all boards)',
+        },
+      },
     },
   },
   {
@@ -280,7 +342,12 @@ const tools: Tool[] = [
     description: 'Get database statistics (node counts, context stats, etc.)',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        board_id: {
+          type: 'string',
+          description: 'Board ID to get stats for (defaults to all boards)',
+        },
+      },
     },
   },
   {
@@ -288,7 +355,12 @@ const tools: Tool[] = [
     description: 'Get all nodes with their positions and types, plus overlap/spacing analysis. Use this to verify diagram layout looks good without needing screenshots.',
     inputSchema: {
       type: 'object',
-      properties: {},
+      properties: {
+        board_id: {
+          type: 'string',
+          description: 'Board ID to get layout for (defaults to all boards)',
+        },
+      },
     },
   },
   {
@@ -330,6 +402,10 @@ const tools: Tool[] = [
         context: {
           type: 'string',
           description: 'Full codebase context embedded in the node so comment threads have it',
+        },
+        board_id: {
+          type: 'string',
+          description: 'Board ID (defaults to "default")',
         },
       },
       required: ['title', 'content'],
@@ -376,6 +452,10 @@ const tools: Tool[] = [
           type: 'number',
           description: 'Assumed node height in pixels. Default: 180',
         },
+        board_id: {
+          type: 'string',
+          description: 'Board ID to arrange (defaults to all boards)',
+        },
       },
     },
   },
@@ -407,16 +487,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const a = (args || {}) as Record<string, unknown>;
 
     switch (name) {
+      case 'create_board': {
+        const err = validateArgs(a, ['name']);
+        if (err) return err;
+        const { name: boardName, id: boardId } = a as any;
+        const board = db.createBoard(boardId || uuidv4(), boardName);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(board, null, 2) }],
+        };
+      }
+
+      case 'delete_board': {
+        const err = validateArgs(a, ['id']);
+        if (err) return err;
+        const { id } = a as any;
+        const success = await db.deleteBoard(id);
+        return {
+          content: [{ type: 'text', text: success ? `Deleted board: ${id}` : `Board not found: ${id}` }],
+        };
+      }
+
+      case 'list_boards': {
+        const boards = db.getAllBoards();
+        return {
+          content: [{ type: 'text', text: JSON.stringify(boards, null, 2) }],
+        };
+      }
+
       case 'create_node': {
         const err = validateArgs(a, ['type', 'content']);
         if (err) return err;
-        const { type, content, context, parent_id } = a as any;
+        const { type, content, context, parent_id, board_id } = a as any;
         const node = await db.createNode({
           id: uuidv4(),
           type,
           content: JSON.stringify(content),
           context: context || '',
           parent_id: parent_id || null,
+          board_id: board_id || 'default',
         });
 
         return {
@@ -596,8 +704,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'search_context': {
         const err = validateArgs(a, ['query']);
         if (err) return err;
-        const { query, limit = 5 } = a as any;
-        const results = await db.searchContext(query, limit);
+        const { query, limit = 5, board_id } = a as any;
+        const results = await db.searchContext(query, limit, board_id);
 
         return {
           content: [
@@ -626,8 +734,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_all_nodes': {
-        const { type } = a as any;
-        let nodes = db.getAllNodes();
+        const { type, board_id } = a as any;
+        let nodes = db.getAllNodes(board_id);
 
         if (type) {
           nodes = nodes.filter((n) => n.type === type);
@@ -644,7 +752,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'export_graph': {
-        const graph = db.exportGraph();
+        const { board_id } = a as any;
+        const graph = db.exportGraph(board_id);
 
         return {
           content: [
@@ -657,7 +766,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_stats': {
-        const stats = await db.getStats();
+        const { board_id } = a as any;
+        const stats = await db.getStats(board_id);
 
         return {
           content: [
@@ -671,8 +781,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'get_canvas_layout': {
         console.error('[MCP] get_canvas_layout');
-        const allNodes = db.getAllNodes();
-        const allEdges = db.getAllEdges();
+        const { board_id: layoutBoardId } = a as any;
+        const allNodes = db.getAllNodes(layoutBoardId);
+        const allEdges = db.getAllEdges(layoutBoardId);
 
         if (allNodes.length === 0) {
           return {
@@ -695,16 +806,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const nodeLayouts = allNodes.map((n: any) => {
           const content = JSON.parse(n.content);
           const { w, h } = getNodeDimensions(n.type, content);
-          return {
+          const layout: any = {
             id: n.id,
             type: n.type,
-            title: content.title || content.question || '(untitled)',
+            title: content.title || content.question || content.text || '(untitled)',
             x: content.position?.x ?? 0,
             y: content.position?.y ?? 0,
             width: w,
             height: h,
             parent_id: n.parent_id || null,
           };
+          if (n.type === 'stickyNote' && content.color) {
+            layout.color = content.color;
+          }
+          return layout;
         });
 
         // Detect overlaps
@@ -778,7 +893,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const err = validateArgs(a, ['title', 'content']);
         if (err) return err;
         console.error('[MCP] create_review');
-        const { title, content: reviewContent, context: reviewContext } = a as any;
+        const { title, content: reviewContent, context: reviewContext, board_id: reviewBoardId } = a as any;
 
         const reviewNode = await db.createNode({
           id: uuidv4(),
@@ -792,6 +907,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }),
           context: reviewContext || '',
           parent_id: null,
+          board_id: reviewBoardId || 'default',
         });
 
         // Node is persisted in DB. Frontend will pick it up on next
@@ -858,10 +974,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           spacing_y = 100,
           node_width = 300,
           node_height = 180,
+          board_id: arrangeBoardId,
         } = a as any;
 
-        const allNodesForLayout = db.getAllNodes();
-        const allEdgesForLayout = db.getAllEdges();
+        const allNodesForLayout = db.getAllNodes(arrangeBoardId);
+        const allEdgesForLayout = db.getAllEdges(arrangeBoardId);
 
         // Build a set of container node IDs
         const containerIds = new Set(

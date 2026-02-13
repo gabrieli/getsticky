@@ -225,9 +225,10 @@ let wsClient: WebSocketClient | null = null;
 /**
  * Get or create WebSocket client instance
  */
-export function getWebSocketClient(url: string = 'ws://localhost:8080'): WebSocketClient {
+export function getWebSocketClient(url: string = 'ws://localhost:8080', boardId?: string): WebSocketClient {
   if (!wsClient) {
-    wsClient = new WebSocketClient({ url });
+    const fullUrl = boardId ? `${url}?board=${boardId}` : url;
+    wsClient = new WebSocketClient({ url: fullUrl });
   }
   return wsClient;
 }

@@ -42,8 +42,8 @@ export interface CreateEdgeParams {
 export class GetStickyAPI {
   private ws;
 
-  constructor(wsUrl?: string) {
-    this.ws = getWebSocketClient(wsUrl);
+  constructor(wsUrl?: string, boardId?: string) {
+    this.ws = getWebSocketClient(wsUrl, boardId);
   }
 
   /**
@@ -185,9 +185,9 @@ let apiInstance: GetStickyAPI | null = null;
 /**
  * Get or create API instance
  */
-export function getAPI(wsUrl?: string): GetStickyAPI {
+export function getAPI(wsUrl?: string, boardId?: string): GetStickyAPI {
   if (!apiInstance) {
-    apiInstance = new GetStickyAPI(wsUrl);
+    apiInstance = new GetStickyAPI(wsUrl, boardId);
   }
   return apiInstance;
 }

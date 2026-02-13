@@ -1,10 +1,11 @@
-import { useReactFlow } from '@xyflow/react';
 import { useAPI } from '../contexts/APIContext';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { type Node } from '@xyflow/react';
 import SettingsModal from './SettingsModal';
+import { STICKY_COLORS } from '../nodes/StickyNoteNode';
 
-interface ToolItem {
+export interface ToolItem {
   id: string;
   label: string;
   icon: string;
@@ -19,6 +20,13 @@ const tools: ToolItem[] = [
     icon: 'T',
     nodeType: 'richtext',
     defaultData: { content: '', placeholder: 'Start typing...' },
+  },
+  {
+    id: 'stickyNote',
+    label: 'Sticky Note',
+    icon: '\u25A0',
+    nodeType: 'stickyNote',
+    defaultData: { text: '', color: 'yellow' },
   },
   {
     id: 'diagramBox',
@@ -50,31 +58,48 @@ const tools: ToolItem[] = [
   },
 ];
 
+const COLOR_KEYS = Object.keys(STICKY_COLORS);
+
 interface CanvasToolbarProps {
   agentName?: string;
   maskedApiKey?: string;
+  activeTool?: ToolItem | null;
+  setActiveTool?: (tool: ToolItem | null) => void;
+  selectedNodes?: Node[];
   onSaveSettings?: (settings: { agentName?: string; apiKey?: string }) => void;
 }
 
-export default function CanvasToolbar({ agentName = 'Claude', maskedApiKey = '', onSaveSettings }: CanvasToolbarProps) {
-  const { screenToFlowPosition } = useReactFlow();
+export default function CanvasToolbar({
+  agentName = 'Claude',
+  maskedApiKey = '',
+  activeTool = null,
+  setActiveTool,
+  selectedNodes = [],
+  onSaveSettings,
+}: CanvasToolbarProps) {
   const api = useAPI();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [gearHovered, setGearHovered] = useState(false);
+  const [hoveredColor, setHoveredColor] = useState<string | null>(null);
 
-  const handleAdd = (tool: ToolItem) => {
-    // Place node at the center of the current viewport
-    const center = screenToFlowPosition({
-      x: window.innerWidth / 2,
-      y: window.innerHeight / 2,
-    });
+  const handleToolClick = (tool: ToolItem) => {
+    if (!setActiveTool) return;
+    // Toggle: clicking same tool deselects
+    if (activeTool?.id === tool.id) {
+      setActiveTool(null);
+    } else {
+      setActiveTool(tool);
+    }
+  };
 
-    api.createNode({
-      type: tool.nodeType,
-      position: center,
-      data: { ...tool.defaultData, position: center },
-    });
+  // Feature 5: Detect if all selected nodes are sticky notes
+  const allSticky = selectedNodes.length > 0 && selectedNodes.every((n) => n.type === 'stickyNoteNode');
+
+  const handleColorChange = (colorKey: string) => {
+    for (const node of selectedNodes) {
+      api.updateNode({ id: node.id, data: { color: colorKey } });
+    }
   };
 
   return (
@@ -97,10 +122,11 @@ export default function CanvasToolbar({ agentName = 'Claude', maskedApiKey = '',
     >
       {tools.map((tool) => {
         const isHovered = hoveredId === tool.id;
+        const isActive = activeTool?.id === tool.id;
         return (
           <div key={tool.id} style={{ position: 'relative' }}>
             <button
-              onClick={() => handleAdd(tool)}
+              onClick={() => handleToolClick(tool)}
               onMouseEnter={() => setHoveredId(tool.id)}
               onMouseLeave={() => setHoveredId(null)}
               style={{
@@ -109,23 +135,29 @@ export default function CanvasToolbar({ agentName = 'Claude', maskedApiKey = '',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: isHovered ? '#2d3748' : 'transparent',
-                border: 'none',
+                background: isActive ? '#3b4a6b' : isHovered ? '#2d3748' : 'transparent',
+                border: isActive ? '1px solid #6366f1' : '1px solid transparent',
                 borderRadius: '7px',
-                color: isHovered ? '#e2e8f0' : '#94a3b8',
+                color: isActive
+                  ? '#a5b4fc'
+                  : tool.id === 'stickyNote'
+                    ? '#fef08a'
+                    : isHovered
+                      ? '#e2e8f0'
+                      : '#94a3b8',
                 fontSize: tool.id === 'terminal' ? '11px' : '16px',
                 fontWeight: 600,
                 cursor: 'pointer',
                 fontFamily: tool.id === 'terminal' ? 'monospace' : 'inherit',
-                transition: 'background 0.15s, color 0.15s',
+                transition: 'background 0.15s, color 0.15s, border-color 0.15s',
               }}
-              title={tool.label}
+              title={isActive ? `${tool.label} (click canvas to place)` : tool.label}
             >
               {tool.icon}
             </button>
 
             {/* Tooltip */}
-            {isHovered && (
+            {isHovered && !isActive && (
               <div
                 style={{
                   position: 'absolute',
@@ -148,9 +180,111 @@ export default function CanvasToolbar({ agentName = 'Claude', maskedApiKey = '',
                 {tool.label}
               </div>
             )}
+
+            {/* Active tool indicator tooltip */}
+            {isActive && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '100%',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  marginLeft: 8,
+                  whiteSpace: 'nowrap',
+                  background: '#312e81',
+                  color: '#a5b4fc',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  border: '1px solid #4338ca',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                  pointerEvents: 'none',
+                }}
+              >
+                Click canvas to place
+              </div>
+            )}
           </div>
         );
       })}
+
+      {/* Contextual color palette for sticky notes */}
+      {allSticky && (
+        <>
+          <div
+            style={{
+              height: '1px',
+              background: '#2d3748',
+              margin: '4px 6px',
+            }}
+          />
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '3px',
+              padding: '2px',
+              position: 'relative',
+            }}
+          >
+            {COLOR_KEYS.map((colorKey) => {
+              const palette = STICKY_COLORS[colorKey];
+              const isCurrentColor = selectedNodes.some(
+                (n) => (n.data.color || 'yellow') === colorKey
+              );
+              const isColorHovered = hoveredColor === colorKey;
+              return (
+                <div key={colorKey} style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => handleColorChange(colorKey)}
+                    onMouseEnter={() => setHoveredColor(colorKey)}
+                    onMouseLeave={() => setHoveredColor(null)}
+                    style={{
+                      width: 36,
+                      height: 20,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: palette.bg,
+                      border: isCurrentColor ? `2px solid ${palette.text}` : '2px solid transparent',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'border-color 0.15s, transform 0.1s',
+                      transform: isColorHovered ? 'scale(1.1)' : 'scale(1)',
+                    }}
+                    title={colorKey}
+                  />
+                  {isColorHovered && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        left: '100%',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        marginLeft: 8,
+                        whiteSpace: 'nowrap',
+                        background: '#1e293b',
+                        color: '#e2e8f0',
+                        fontSize: '11px',
+                        fontWeight: 500,
+                        padding: '3px 8px',
+                        borderRadius: '5px',
+                        border: '1px solid #334155',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                        pointerEvents: 'none',
+                        textTransform: 'capitalize',
+                      }}
+                    >
+                      {colorKey}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* Separator */}
       <div

@@ -4,7 +4,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { Node, Edge, ContextEntry, NodeType, ContextSource } from '../types';
+import { Node, Edge, ContextEntry, NodeType, ContextSource, Board } from '../types';
 import path from 'path';
 import fs from 'fs';
 
@@ -26,6 +26,21 @@ export class SQLiteDB {
     // Enable foreign keys
     this.db.pragma('foreign_keys = ON');
 
+    // Create boards table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS boards (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Seed default board
+    this.db.exec(`
+      INSERT OR IGNORE INTO boards (id, name) VALUES ('default', 'Default Board')
+    `);
+
     // Create nodes table
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS nodes (
@@ -34,11 +49,18 @@ export class SQLiteDB {
         content TEXT NOT NULL,
         context TEXT NOT NULL DEFAULT '',
         parent_id TEXT,
+        board_id TEXT NOT NULL DEFAULT 'default',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (parent_id) REFERENCES nodes(id) ON DELETE SET NULL
       )
     `);
+
+    // Migrate: add board_id column if missing (for existing databases)
+    const columns = this.db.pragma('table_info(nodes)') as { name: string }[];
+    if (!columns.some((col) => col.name === 'board_id')) {
+      this.db.exec(`ALTER TABLE nodes ADD COLUMN board_id TEXT NOT NULL DEFAULT 'default'`);
+    }
 
     // Create edges table
     this.db.exec(`
@@ -77,6 +99,7 @@ export class SQLiteDB {
     // Create indexes for performance
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_nodes_parent ON nodes(parent_id);
+      CREATE INDEX IF NOT EXISTS idx_nodes_board ON nodes(board_id);
       CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_id);
       CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_id);
       CREATE INDEX IF NOT EXISTS idx_context_node ON context_chain(node_id);
@@ -89,8 +112,8 @@ export class SQLiteDB {
 
   createNode(node: Omit<Node, 'created_at' | 'updated_at'>): Node {
     const stmt = this.db.prepare(`
-      INSERT INTO nodes (id, type, content, context, parent_id)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO nodes (id, type, content, context, parent_id, board_id)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -98,7 +121,8 @@ export class SQLiteDB {
       node.type,
       node.content,
       node.context || '',
-      node.parent_id
+      node.parent_id,
+      node.board_id || 'default'
     );
 
     return this.getNode(node.id)!;
@@ -109,7 +133,11 @@ export class SQLiteDB {
     return stmt.get(id) as Node | null;
   }
 
-  getAllNodes(): Node[] {
+  getAllNodes(boardId?: string): Node[] {
+    if (boardId) {
+      const stmt = this.db.prepare('SELECT * FROM nodes WHERE board_id = ? ORDER BY created_at DESC');
+      return stmt.all(boardId) as Node[];
+    }
     const stmt = this.db.prepare('SELECT * FROM nodes ORDER BY created_at DESC');
     return stmt.all() as Node[];
   }
@@ -180,7 +208,11 @@ export class SQLiteDB {
     return { incoming, outgoing };
   }
 
-  getAllEdges(): Edge[] {
+  getAllEdges(boardId?: string): Edge[] {
+    if (boardId) {
+      const stmt = this.db.prepare('SELECT e.* FROM edges e JOIN nodes n ON e.source_id = n.id WHERE n.board_id = ?');
+      return stmt.all(boardId) as Edge[];
+    }
     const stmt = this.db.prepare('SELECT * FROM edges');
     return stmt.all() as Edge[];
   }
@@ -254,7 +286,7 @@ export class SQLiteDB {
     const parent = this.getNode(parentId);
     if (!parent) return null;
 
-    // Inherit parent's context
+    // Inherit parent's context and board
     const inheritedContext = this.getInheritedContext(parentId);
 
     return this.createNode({
@@ -263,6 +295,7 @@ export class SQLiteDB {
       content: newNodeData.content,
       context: inheritedContext,
       parent_id: parentId,
+      board_id: parent.board_id,
     });
   }
 
@@ -272,6 +305,66 @@ export class SQLiteDB {
   getChildNodes(parentId: string): Node[] {
     const stmt = this.db.prepare('SELECT * FROM nodes WHERE parent_id = ?');
     return stmt.all(parentId) as Node[];
+  }
+
+  /**
+   * Board CRUD operations
+   */
+
+  createBoard(id: string, name: string): Board {
+    const stmt = this.db.prepare(`
+      INSERT INTO boards (id, name)
+      VALUES (?, ?)
+    `);
+    stmt.run(id, name);
+    return this.getBoard(id)!;
+  }
+
+  getBoard(id: string): Board | null {
+    const stmt = this.db.prepare('SELECT * FROM boards WHERE id = ?');
+    return stmt.get(id) as Board | null;
+  }
+
+  getAllBoards(): Board[] {
+    const stmt = this.db.prepare('SELECT * FROM boards ORDER BY created_at DESC');
+    return stmt.all() as Board[];
+  }
+
+  deleteBoard(id: string): boolean {
+    if (id === 'default') {
+      throw new Error('Cannot delete the default board');
+    }
+
+    const board = this.getBoard(id);
+    if (!board) return false;
+
+    // Use a transaction to clean up all related data
+    const deleteTransaction = this.db.transaction(() => {
+      // Delete context_chain entries for this board's nodes
+      this.db.prepare(`
+        DELETE FROM context_chain WHERE node_id IN (
+          SELECT id FROM nodes WHERE board_id = ?
+        )
+      `).run(id);
+
+      // Delete edges where source or target belongs to this board
+      this.db.prepare(`
+        DELETE FROM edges WHERE source_id IN (
+          SELECT id FROM nodes WHERE board_id = ?
+        ) OR target_id IN (
+          SELECT id FROM nodes WHERE board_id = ?
+        )
+      `).run(id, id);
+
+      // Delete all nodes on this board
+      this.db.prepare('DELETE FROM nodes WHERE board_id = ?').run(id);
+
+      // Delete the board itself
+      this.db.prepare('DELETE FROM boards WHERE id = ?').run(id);
+    });
+
+    deleteTransaction();
+    return true;
   }
 
   /**

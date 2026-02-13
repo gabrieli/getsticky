@@ -5,7 +5,7 @@
 
 import { SQLiteDB } from './sqlite';
 import { LanceDBManager } from './lancedb';
-import { Node, Edge, NodeType, ContextSource } from '../types';
+import { Node, Edge, NodeType, ContextSource, Board } from '../types';
 
 export class DatabaseManager {
   private sqlite: SQLiteDB;
@@ -36,19 +36,23 @@ export class DatabaseManager {
     content: string;
     context?: string;
     parent_id?: string | null;
+    board_id?: string;
   }): Promise<Node> {
+    const boardId = node.board_id || 'default';
     const createdNode = this.sqlite.createNode({
       id: node.id,
       type: node.type,
       content: node.content,
       context: node.context || '',
       parent_id: node.parent_id || null,
+      board_id: boardId,
     });
 
     // Add context to vector DB if provided
     if (node.context) {
       await this.lancedb.addContext({
         nodeId: node.id,
+        boardId,
         text: node.context,
         source: 'user',
       });
@@ -61,8 +65,8 @@ export class DatabaseManager {
     return this.sqlite.getNode(id);
   }
 
-  getAllNodes(): Node[] {
-    return this.sqlite.getAllNodes();
+  getAllNodes(boardId?: string): Node[] {
+    return this.sqlite.getAllNodes(boardId);
   }
 
   async updateNode(id: string, updates: {
@@ -113,8 +117,8 @@ export class DatabaseManager {
     return this.sqlite.getEdgesForNode(nodeId);
   }
 
-  getAllEdges(): Edge[] {
-    return this.sqlite.getAllEdges();
+  getAllEdges(boardId?: string): Edge[] {
+    return this.sqlite.getAllEdges(boardId);
   }
 
   deleteEdge(id: string): boolean {
@@ -161,8 +165,8 @@ export class DatabaseManager {
   /**
    * Semantic search across all contexts
    */
-  async searchContext(query: string, limit: number = 5) {
-    return await this.lancedb.search(query, limit);
+  async searchContext(query: string, limit: number = 5, boardId?: string) {
+    return await this.lancedb.search(query, limit, boardId);
   }
 
   /**
@@ -221,9 +225,9 @@ export class DatabaseManager {
   /**
    * Get database statistics
    */
-  async getStats() {
-    const nodes = this.sqlite.getAllNodes();
-    const edges = this.sqlite.getAllEdges();
+  async getStats(boardId?: string) {
+    const nodes = this.sqlite.getAllNodes(boardId);
+    const edges = this.sqlite.getAllEdges(boardId);
     const vectorStats = await this.lancedb.getStats();
 
     return {
@@ -235,6 +239,29 @@ export class DatabaseManager {
       }, {} as Record<string, number>),
       ...vectorStats,
     };
+  }
+
+  /**
+   * Board operations
+   */
+
+  createBoard(id: string, name: string): Board {
+    return this.sqlite.createBoard(id, name);
+  }
+
+  getBoard(id: string): Board | null {
+    return this.sqlite.getBoard(id);
+  }
+
+  getAllBoards(): Board[] {
+    return this.sqlite.getAllBoards();
+  }
+
+  async deleteBoard(id: string): Promise<boolean> {
+    // Clean up LanceDB contexts for this board
+    await this.lancedb.deleteBoardContexts(id);
+    // Clean up SQLite (nodes, edges, context_chain, board row)
+    return this.sqlite.deleteBoard(id);
   }
 
   /**
@@ -256,10 +283,10 @@ export class DatabaseManager {
   /**
    * Export graph data for visualization
    */
-  exportGraph(): { nodes: Node[]; edges: Edge[] } {
+  exportGraph(boardId?: string): { nodes: Node[]; edges: Edge[] } {
     return {
-      nodes: this.sqlite.getAllNodes(),
-      edges: this.sqlite.getAllEdges(),
+      nodes: this.sqlite.getAllNodes(boardId),
+      edges: this.sqlite.getAllEdges(boardId),
     };
   }
 

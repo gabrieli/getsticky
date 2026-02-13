@@ -3,8 +3,8 @@ import { getAPI, type GetStickyAPI } from '../lib/api';
 
 const APIContext = createContext<GetStickyAPI | null>(null);
 
-export function APIProvider({ children }: { children: ReactNode }) {
-  const api = getAPI();
+export function APIProvider({ boardId, children }: { boardId?: string; children: ReactNode }) {
+  const api = getAPI(undefined, boardId);
 
   return <APIContext.Provider value={api}>{children}</APIContext.Provider>;
 }

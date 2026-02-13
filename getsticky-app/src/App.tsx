@@ -4,14 +4,17 @@ import {
   Background,
   Controls,
   MiniMap,
+  SelectionMode,
   applyNodeChanges,
   applyEdgeChanges,
+  useReactFlow,
   type Connection,
   type NodeTypes,
   type NodeChange,
   type EdgeChange,
   type Node,
   type Edge,
+  type OnSelectionChangeParams,
   ReactFlowProvider,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -22,10 +25,11 @@ import DiagramNode from './nodes/DiagramNode';
 import DiagramBoxNode from './nodes/DiagramBoxNode';
 import ContainerNode from './nodes/ContainerNode';
 import TerminalNode from './nodes/TerminalNode';
+import StickyNoteNode from './nodes/StickyNoteNode';
 import NodeErrorBoundary from './components/NodeErrorBoundary';
 import { getAPI } from './lib/api';
 import { APIProvider } from './contexts/APIContext';
-import CanvasToolbar from './components/CanvasToolbar';
+import CanvasToolbar, { type ToolItem } from './components/CanvasToolbar';
 import './App.css';
 
 // Wrap each node component in an error boundary so one crash doesn't take down the canvas
@@ -49,6 +53,7 @@ const nodeTypes: NodeTypes = {
   diagramBox: withErrorBoundary(DiagramBoxNode),
   containerNode: withErrorBoundary(ContainerNode as any),
   terminalNode: withErrorBoundary(TerminalNode),
+  stickyNoteNode: withErrorBoundary(StickyNoteNode),
 };
 
 const nodeTypeMap: Record<string, string> = {
@@ -58,6 +63,7 @@ const nodeTypeMap: Record<string, string> = {
   diagramBox: 'diagramBox',
   container: 'containerNode',
   terminal: 'terminalNode',
+  stickyNote: 'stickyNoteNode',
 };
 
 // React Flow requires parent nodes to appear before children in the array
@@ -136,6 +142,17 @@ function AppContent() {
   const [agentName, setAgentName] = useState('Claude');
   const [maskedApiKey, setMaskedApiKey] = useState('');
   const agentNameRef = useRef(agentName);
+
+  // Feature 3: Click-to-place
+  const [activeTool, setActiveTool] = useState<ToolItem | null>(null);
+  const { screenToFlowPosition } = useReactFlow();
+
+  // Feature 5: Selection tracking for contextual menu
+  const [selectedNodes, setSelectedNodes] = useState<Node[]>([]);
+
+  // Feature 4: Copy/paste
+  const copiedNodesRef = useRef<Node[]>([]);
+  const pasteCountRef = useRef(0);
 
   // Connect to WebSocket on mount
   useEffect(() => {
@@ -401,8 +418,84 @@ function AppContent() {
     });
   }, []);
 
+  // Feature 3: Click-to-place handler
+  const onPaneClick = useCallback((event: React.MouseEvent) => {
+    if (!activeTool) return;
+    const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    apiRef.current.createNode({
+      type: activeTool.nodeType,
+      position,
+      data: { ...activeTool.defaultData, position },
+    });
+    setActiveTool(null); // one-shot: deselect after placing
+  }, [activeTool, screenToFlowPosition]);
+
+  // Feature 5: Selection change handler
+  const onSelectionChange = useCallback(({ nodes: selected }: OnSelectionChangeParams) => {
+    setSelectedNodes(selected);
+  }, []);
+
+  // Feature 4: Copy/paste keyboard handler + Escape to clear tool
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Skip when user is typing in an input/textarea/contenteditable
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        (el instanceof HTMLElement && el.isContentEditable)
+      ) {
+        return;
+      }
+
+      // Escape: clear active tool
+      if (e.key === 'Escape') {
+        setActiveTool(null);
+        return;
+      }
+
+      // Cmd/Ctrl+C: copy selected nodes
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        if (selectedNodes.length > 0) {
+          copiedNodesRef.current = selectedNodes.map((n) => ({ ...n, data: { ...n.data } }));
+          pasteCountRef.current = 0;
+        }
+        return;
+      }
+
+      // Cmd/Ctrl+V: paste copied nodes with stacked offset
+      if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
+        if (copiedNodesRef.current.length === 0) return;
+        e.preventDefault();
+        pasteCountRef.current += 1;
+        const offset = 25 * pasteCountRef.current;
+
+        for (const node of copiedNodesRef.current) {
+          const newPos = {
+            x: node.position.x + offset,
+            y: node.position.y + offset,
+          };
+          // Map flow type back to server type for createNode
+          const serverType = Object.entries(nodeTypeMap).find(
+            ([, flowType]) => flowType === node.type
+          )?.[0] || 'richtext';
+
+          apiRef.current.createNode({
+            type: serverType,
+            position: newPos,
+            data: { ...node.data, position: newPos },
+          });
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNodes]);
+
   return (
-    <div style={{ width: '100vw', height: '100vh' }}>
+    <div style={{ width: '100vw', height: '100vh', cursor: activeTool ? 'crosshair' : undefined }}>
       {/* Connection indicator */}
       <div
         style={{
@@ -427,7 +520,12 @@ function AppContent() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onPaneClick={onPaneClick}
+        onSelectionChange={onSelectionChange}
         nodeTypes={nodeTypes}
+        selectionOnDrag={true}
+        panOnDrag={[1, 2]}
+        selectionMode={SelectionMode.Partial}
         minZoom={0.1}
         maxZoom={4}
         fitView
@@ -443,6 +541,9 @@ function AppContent() {
         <CanvasToolbar
           agentName={agentName}
           maskedApiKey={maskedApiKey}
+          activeTool={activeTool}
+          setActiveTool={setActiveTool}
+          selectedNodes={selectedNodes}
           onSaveSettings={(settings) => {
             apiRef.current.updateSettings(settings);
             if (settings.agentName) setAgentName(settings.agentName);
@@ -463,6 +564,8 @@ function AppContent() {
                 return 'rgba(71, 85, 105, 0.3)';
               case 'terminalNode':
                 return '#10b981';
+              case 'stickyNoteNode':
+                return '#fef08a';
               default:
                 return '#4a5568';
             }
@@ -477,8 +580,10 @@ function AppContent() {
 }
 
 function App() {
+  const boardId = new URLSearchParams(window.location.search).get('board') || undefined;
+
   return (
-    <APIProvider>
+    <APIProvider boardId={boardId}>
       <ReactFlowProvider>
         <AppContent />
       </ReactFlowProvider>
