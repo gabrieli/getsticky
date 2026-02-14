@@ -1,6 +1,7 @@
 import { memo, useCallback, useRef, useEffect, useState } from 'react';
 import { type NodeProps } from '@xyflow/react';
 import { useAPI } from '../contexts/APIContext';
+import { handleWheelPassthroughPinch } from '../lib/gestures';
 
 const STICKY_COLORS: Record<string, { bg: string; text: string }> = {
   yellow:   { bg: '#fef08a', text: '#713f12' },
@@ -101,10 +102,11 @@ function StickyNoteNode({ id, data, selected }: NodeProps) {
       />
 
       {/* Editable text area — no React children, text set via ref */}
-      {/* nodrag/nowheel/nopan classes prevent React Flow from intercepting events */}
+      {/* nodrag/nopan classes + onWheel handler prevent React Flow from intercepting events while allowing pinch-to-zoom */}
       <div
         ref={textRef}
-        className={`nodrag${isEditing || selected ? ' nowheel nopan' : ''}`}
+        className={`nodrag${isEditing || selected ? ' nopan' : ''}`}
+        onWheel={isEditing || selected ? handleWheelPassthroughPinch : undefined}
         contentEditable
         suppressContentEditableWarning
         onInput={handleInput}

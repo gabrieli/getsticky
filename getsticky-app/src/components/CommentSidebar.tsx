@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { CommentMessage, CommentThread } from '../types/comments';
+import { handleWheelPassthroughPinch } from '../lib/gestures';
 
 export type { CommentMessage, CommentThread };
 
@@ -40,7 +41,8 @@ function CommentCard({
 
   return (
     <div
-      className="nowheel nodrag"
+      className="nodrag"
+      onWheel={handleWheelPassthroughPinch}
       onClick={() => onThreadClick(thread.id)}
       style={{
         width: '280px',
@@ -138,7 +140,7 @@ function CommentCard({
       {/* Expanded body */}
       {expanded && (
         <div
-          className="nowheel"
+          onWheel={handleWheelPassthroughPinch}
           style={{
             padding: '8px 10px 10px',
             maxHeight: '300px',
@@ -328,7 +330,7 @@ export default function CommentSidebar({
 
   return (
     <div
-      className="nowheel"
+      onWheel={handleWheelPassthroughPinch}
       style={{
         position: 'absolute',
         right: '-300px',
