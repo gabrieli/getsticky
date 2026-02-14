@@ -107,6 +107,14 @@ function dbNodeToFlowNode(dbNode: any, allDbNodes?: any[]): Node {
     };
   }
 
+  // RichText nodes need explicit dimensions (component uses width/height: 100%)
+  if (flowType === 'richTextNode') {
+    node.style = {
+      width: content.width || 400,
+      height: content.height || 300,
+    };
+  }
+
   // If this node has a parent that is a container, set up grouping
   if (dbNode.parent_id && allDbNodes) {
     const parent = allDbNodes.find((n: any) => n.id === dbNode.parent_id);
@@ -126,6 +134,7 @@ const demoNodes: Node[] = [
     id: 'question-1',
     type: 'richTextNode',
     position: { x: 100, y: 200 },
+    style: { width: 400, height: 300 },
     data: {
       content: '',
       placeholder: 'Ask Claude about your codebase...',
@@ -380,10 +389,10 @@ function AppContent() {
           return nds;
         });
       } else if (change.type === 'dimensions' && change.dimensions) {
-        // Persist container resize to backend
+        // Persist resize to backend for resizable node types
         setNodes((nds) => {
           const node = nds.find((n) => n.id === change.id);
-          if (node && node.type === 'containerNode') {
+          if (node && (node.type === 'containerNode' || node.type === 'richTextNode')) {
             apiRef.current.updateNode({
               id: change.id,
               data: {

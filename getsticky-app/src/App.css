@@ -12,12 +12,12 @@ body, html, #root {
     sans-serif;
 }
 
-/* NodeResizer dark theme */
-.react-flow__resize-control.line {
+/* NodeResizer dark theme — scoped to container nodes */
+.react-flow__node-containerNode .react-flow__resize-control.line {
   border-color: #475569 !important;
 }
 
-.react-flow__resize-control.handle {
+.react-flow__node-containerNode .react-flow__resize-control.handle {
   width: 8px !important;
   height: 8px !important;
   border-radius: 2px !important;
@@ -25,8 +25,22 @@ body, html, #root {
   border: 1px solid #64748b !important;
 }
 
-.react-flow__resize-control.handle:hover {
+.react-flow__node-containerNode .react-flow__resize-control.handle:hover {
   background: #64748b !important;
+}
+
+/* RichText resize controls — invisible but grabbable */
+.react-flow__node-richTextNode .react-flow__resize-control.line {
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+.react-flow__node-richTextNode .react-flow__resize-control.handle {
+  width: 16px !important;
+  height: 16px !important;
+  opacity: 0 !important;
+  border: none !important;
+  background: transparent !important;
 }
 
 /* TipTap editor styles */

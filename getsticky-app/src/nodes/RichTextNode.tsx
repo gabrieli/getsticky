@@ -1,4 +1,4 @@
-import { type Node } from '@xyflow/react';
+import { NodeResizer, type Node } from '@xyflow/react';
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
@@ -32,6 +32,8 @@ export type RichTextNodeData = {
   placeholder?: string;
   agentName?: string;
   comments?: CommentThread[];
+  width?: number;
+  height?: number;
 };
 
 export type RichTextNode = Node<RichTextNodeData>;
@@ -339,20 +341,38 @@ function RichTextNodeComponent({ data, id, selected }: { data: RichTextNodeData;
           : '1px solid #2d3748',
         borderRadius: '12px',
         padding: '0',
-        minWidth: '400px',
-        maxWidth: '600px',
+        width: '100%',
+        height: '100%',
         cursor: selected ? 'default' : 'grab',
         boxShadow: selected
           ? '0 8px 24px rgba(250, 204, 21, 0.15), 0 0 0 1px rgba(250, 204, 21, 0.2)'
           : isHovered
           ? '0 6px 16px rgba(0, 0, 0, 0.4)'
           : '0 4px 12px rgba(0, 0, 0, 0.3)',
-        transition: 'all 0.2s ease',
+        transition: 'box-shadow 0.2s ease, border 0.2s ease',
         position: 'relative',
         overflow: 'visible',
+        display: 'flex',
+        flexDirection: 'column',
       }}
       onKeyDown={handleKeyDown}
     >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={300}
+        minHeight={200}
+        lineStyle={{
+          borderColor: 'transparent',
+          borderWidth: 6,
+          background: 'transparent',
+        }}
+        handleStyle={{
+          width: 0,
+          height: 0,
+          opacity: 0,
+          border: 'none',
+        }}
+      />
       {/* Header */}
       <div
         ref={headerRef}
@@ -495,8 +515,8 @@ function RichTextNodeComponent({ data, id, selected }: { data: RichTextNodeData;
           fontSize: '14px',
           color: '#e2e8f0',
           lineHeight: '1.7',
-          minHeight: '200px',
-          maxHeight: '400px',
+          flex: 1,
+          minHeight: 0,
           overflowY: 'auto',
           cursor: selected ? 'text' : 'inherit',
         }}
