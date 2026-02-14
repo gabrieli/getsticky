@@ -524,6 +524,7 @@ function AppContent() {
         onPaneClick={onPaneClick}
         onSelectionChange={onSelectionChange}
         nodeTypes={nodeTypes}
+        selectNodesOnDrag={false}
         selectionOnDrag={true}
         panOnDrag={[1, 2]}
         selectionMode={SelectionMode.Partial}
