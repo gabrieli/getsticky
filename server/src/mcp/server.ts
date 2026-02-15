@@ -162,6 +162,10 @@ const tools: Tool[] = [
           type: 'string',
           description: 'Updated context',
         },
+        parent_id: {
+          type: ['string', 'null'],
+          description: 'New parent node ID (set to null to detach from parent)',
+        },
       },
       required: ['id'],
     },
@@ -635,11 +639,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'update_node': {
         const err = validateArgs(a, ['id']);
         if (err) return err;
-        const { id, content, context } = a as any;
+        const { id, content, context, parent_id } = a as any;
         const updates: any = {};
 
         if (content) updates.content = JSON.stringify(content);
         if (context) updates.context = context;
+        if (parent_id !== undefined) updates.parent_id = parent_id;
 
         const node = await db.updateNode(id, updates);
 

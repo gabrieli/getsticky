@@ -137,7 +137,7 @@ function dbNodeToFlowNode(dbNode: any, allDbNodes?: any[]): Node {
     };
   }
 
-  // StickyNote nodes need explicit width (height is auto via CSS)
+  // StickyNote nodes need explicit width (height driven by component)
   if (flowType === 'stickyNoteNode') {
     node.style = {
       width: content.width || 200,
