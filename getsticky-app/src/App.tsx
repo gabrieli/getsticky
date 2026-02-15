@@ -889,22 +889,50 @@ function AppContent() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', cursor: activeTool ? 'crosshair' : undefined }}>
-      {/* Connection indicator */}
+      {/* Top bar: Logo + Name + GitHub */}
       <div
         style={{
           position: 'absolute',
-          top: 10,
-          left: 10,
+          top: 0,
+          left: 0,
+          right: 0,
           zIndex: 1000,
-          padding: '8px 12px',
-          background: isConnected ? '#10b981' : '#ef4444',
-          color: 'white',
-          borderRadius: '6px',
-          fontSize: '12px',
-          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '8px 16px',
+          pointerEvents: 'none',
         }}
       >
-        {isConnected ? '● Connected' : '○ Disconnected'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto' }}>
+          <img src="/sticky-logo-cropped.png" alt="getsticky" style={{ width: 32, height: 32 }} />
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', letterSpacing: '-0.01em' }}>getsticky</span>
+          <a
+            href="https://github.com/techfulness/getsticky"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'flex', alignItems: 'center', color: '#64748b', marginLeft: 4, transition: 'color 0.15s' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#e2e8f0')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#64748b')}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+          </a>
+        </div>
+
+        {/* Connection dot — top right */}
+        <div style={{ marginLeft: 'auto', pointerEvents: 'auto' }}>
+          <div
+            title={isConnected ? 'Connected' : 'Disconnected'}
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: isConnected ? '#10b981' : '#ef4444',
+            }}
+          />
+        </div>
       </div>
 
       <ReactFlow
@@ -1014,7 +1042,22 @@ function ProjectListPage() {
   return (
     <div style={{ minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', padding: '48px 24px' }}>
       <div style={{ maxWidth: 800, margin: '0 auto' }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>GetSticky</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <img src="/sticky-logo-cropped.png" alt="getsticky" style={{ width: 40, height: 40 }} />
+          <h1 style={{ fontSize: 28, fontWeight: 700 }}>getsticky</h1>
+          <a
+            href="https://github.com/techfulness/getsticky"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: 'flex', alignItems: 'center', color: '#64748b', transition: 'color 0.15s' }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#e2e8f0')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#64748b')}
+          >
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+          </a>
+        </div>
         <p style={{ color: '#94a3b8', marginBottom: 32 }}>Select a project to open its canvas.</p>
 
         <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
@@ -1088,10 +1131,11 @@ function BoardListPage({ projectSlug }: { projectSlug: string }) {
           <a
             href="/"
             onClick={(e) => { e.preventDefault(); navigateTo('/'); }}
-            style={{ color: '#94a3b8', textDecoration: 'none', fontSize: 14 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#94a3b8', textDecoration: 'none', fontSize: 14 }}
             onMouseEnter={(e) => (e.currentTarget.style.color = '#e2e8f0')}
             onMouseLeave={(e) => (e.currentTarget.style.color = '#94a3b8')}
           >
+            <img src="/sticky-logo-cropped.png" alt="getsticky" style={{ width: 28, height: 28 }} />
             &larr; All Projects
           </a>
         </div>
@@ -1138,8 +1182,8 @@ function NavBreadcrumb({ projectSlug, boardSlug }: { projectSlug: string; boardS
     <div
       style={{
         position: 'absolute',
-        top: 10,
-        left: 140,
+        top: 44,
+        left: 16,
         zIndex: 1000,
         display: 'flex',
         alignItems: 'center',
