@@ -29,8 +29,42 @@ import { computeListLayout, LIST_WIDTH } from './nodes/ListNode';
 import NodeErrorBoundary from './components/NodeErrorBoundary';
 import { getAPI } from './lib/api';
 import { APIProvider } from './contexts/APIContext';
+import { getApiBaseUrl } from './lib/websocket';
 import CanvasToolbar, { type ToolItem } from './components/CanvasToolbar';
 import './App.css';
+
+// ---------------------------------------------------------------------------
+// Route parsing
+// ---------------------------------------------------------------------------
+interface AppRoute {
+  view: 'home' | 'project' | 'board';
+  project?: string;
+  board?: string;
+}
+
+function parseRoute(): AppRoute {
+  const path = window.location.pathname;
+
+  // /project/:slug/board/:slug
+  const boardMatch = path.match(/^\/project\/([^/]+)\/board\/([^/]+)/);
+  if (boardMatch) return { view: 'board', project: boardMatch[1], board: boardMatch[2] };
+
+  // /project/:slug → show board list for this project
+  const projMatch = path.match(/^\/project\/([^/]+)\/?$/);
+  if (projMatch) return { view: 'project', project: projMatch[1] };
+
+  // Legacy: ?board=id
+  const boardId = new URLSearchParams(window.location.search).get('board');
+  if (boardId) return { view: 'board', project: 'default', board: boardId };
+
+  // / → home (project list)
+  return { view: 'home' };
+}
+
+function navigateTo(url: string) {
+  window.history.pushState({}, '', url);
+  window.dispatchEvent(new PopStateEvent('popstate'));
+}
 
 // Wrap each node component in an error boundary so one crash doesn't take down the canvas
 function withErrorBoundary<P extends { id: string }>(
@@ -942,16 +976,286 @@ function AppContent() {
   );
 }
 
-function App() {
-  const boardId = new URLSearchParams(window.location.search).get('board') || undefined;
+// ---------------------------------------------------------------------------
+// Project List Page
+// ---------------------------------------------------------------------------
+interface ProjectInfo {
+  id: string;
+  name: string;
+  boards: { id: string; slug: string; name: string }[];
+}
+
+function ProjectListPage() {
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const apiUrl = getApiBaseUrl();
+    fetch(`${apiUrl}/api/projects`)
+      .then((res) => res.json())
+      .then((data) => {
+        setProjects(data);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Failed to load projects:', err);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a', color: '#e2e8f0' }}>
+        <p>Loading projects...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', padding: '48px 24px' }}>
+      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>GetSticky</h1>
+        <p style={{ color: '#94a3b8', marginBottom: 32 }}>Select a project to open its canvas.</p>
+
+        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+          {projects.map((project) => (
+            <div
+              key={project.id}
+              onClick={() => navigateTo(`/project/${project.id}`)}
+              style={{
+                background: '#1e293b',
+                border: '1px solid #334155',
+                borderRadius: 12,
+                padding: '20px 24px',
+                cursor: 'pointer',
+                transition: 'border-color 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#6366f1')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#334155')}
+            >
+              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{project.name}</h2>
+              <p style={{ fontSize: 12, color: '#64748b' }}>
+                {project.boards.length} board{project.boards.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {projects.length === 0 && (
+          <p style={{ color: '#64748b', textAlign: 'center', marginTop: 48 }}>
+            No projects yet. Use the MCP server or CLI to create one.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Board List Page (for a single project)
+// ---------------------------------------------------------------------------
+function BoardListPage({ projectSlug }: { projectSlug: string }) {
+  const [boards, setBoards] = useState<{ id: string; slug: string; name: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const apiUrl = getApiBaseUrl();
+    fetch(`${apiUrl}/api/projects`)
+      .then((res) => res.json())
+      .then((projects: ProjectInfo[]) => {
+        const project = projects.find((p) => p.id === projectSlug);
+        setBoards(project?.boards || []);
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error('Failed to load boards:', err);
+        setLoading(false);
+      });
+  }, [projectSlug]);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a', color: '#e2e8f0' }}>
+        <p>Loading boards...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0f172a', color: '#e2e8f0', padding: '48px 24px' }}>
+      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <a
+            href="/"
+            onClick={(e) => { e.preventDefault(); navigateTo('/'); }}
+            style={{ color: '#94a3b8', textDecoration: 'none', fontSize: 14 }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = '#e2e8f0')}
+            onMouseLeave={(e) => (e.currentTarget.style.color = '#94a3b8')}
+          >
+            &larr; All Projects
+          </a>
+        </div>
+        <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>{projectSlug}</h1>
+        <p style={{ color: '#94a3b8', marginBottom: 32 }}>Select a board to open.</p>
+
+        <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+          {boards.map((board) => (
+            <div
+              key={board.id}
+              onClick={() => navigateTo(`/project/${projectSlug}/board/${board.slug}`)}
+              style={{
+                background: '#1e293b',
+                border: '1px solid #334155',
+                borderRadius: 12,
+                padding: '20px 24px',
+                cursor: 'pointer',
+                transition: 'border-color 0.15s',
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#6366f1')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#334155')}
+            >
+              <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{board.name}</h2>
+              <p style={{ fontSize: 12, color: '#64748b' }}>{board.slug}</p>
+            </div>
+          ))}
+        </div>
+
+        {boards.length === 0 && (
+          <p style={{ color: '#64748b', textAlign: 'center', marginTop: 48 }}>
+            No boards in this project yet.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Navigation breadcrumb
+// ---------------------------------------------------------------------------
+function NavBreadcrumb({ projectSlug, boardSlug }: { projectSlug: string; boardSlug: string }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 10,
+        left: 140,
+        zIndex: 1000,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        fontSize: 12,
+        color: '#94a3b8',
+      }}
+    >
+      <a
+        href="/"
+        onClick={(e) => { e.preventDefault(); navigateTo('/'); }}
+        style={{ color: '#94a3b8', textDecoration: 'none', cursor: 'pointer' }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = '#e2e8f0')}
+        onMouseLeave={(e) => (e.currentTarget.style.color = '#94a3b8')}
+      >
+        Home
+      </a>
+      <span style={{ color: '#475569' }}>/</span>
+      <a
+        href={`/project/${projectSlug}`}
+        onClick={(e) => { e.preventDefault(); navigateTo(`/project/${projectSlug}`); }}
+        style={{ color: '#94a3b8', textDecoration: 'none', cursor: 'pointer' }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = '#e2e8f0')}
+        onMouseLeave={(e) => (e.currentTarget.style.color = '#94a3b8')}
+      >
+        {projectSlug}
+      </a>
+      <span style={{ color: '#475569' }}>/</span>
+      <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{boardSlug}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Board page with resolution
+// ---------------------------------------------------------------------------
+function BoardPage({ projectSlug, boardSlug }: { projectSlug: string; boardSlug: string }) {
+  const [boardId, setBoardId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const apiUrl = getApiBaseUrl();
+    fetch(`${apiUrl}/api/resolve?project=${encodeURIComponent(projectSlug)}&board=${encodeURIComponent(boardSlug)}`)
+      .then((res) => res.json())
+      .then((data) => {
+        setBoardId(data.boardId);
+      })
+      .catch((err) => {
+        console.error('Failed to resolve board:', err);
+        setError('Failed to connect to server');
+      });
+  }, [projectSlug, boardSlug]);
+
+  if (error) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a', color: '#ef4444' }}>
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  if (!boardId) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0f172a', color: '#e2e8f0' }}>
+        <p>Loading board...</p>
+      </div>
+    );
+  }
 
   return (
     <APIProvider boardId={boardId}>
       <ReactFlowProvider>
+        <NavBreadcrumb projectSlug={projectSlug} boardSlug={boardSlug} />
         <AppContent />
       </ReactFlowProvider>
     </APIProvider>
   );
+}
+
+// ---------------------------------------------------------------------------
+// App: Router
+// ---------------------------------------------------------------------------
+function App() {
+  const [route, setRoute] = useState<AppRoute>(parseRoute);
+
+  useEffect(() => {
+    const handlePopState = () => setRoute(parseRoute());
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  if (route.view === 'home') {
+    return <ProjectListPage />;
+  }
+
+  if (route.view === 'project') {
+    return <BoardListPage projectSlug={route.project || 'default'} />;
+  }
+
+  // Board view: resolve project+board slugs to a board ID
+  const projectSlug = route.project || 'default';
+  const boardSlug = route.board || 'main';
+
+  // Legacy ?board=id support: if the board slug contains a colon, it's already a full board ID
+  if (boardSlug.includes(':') || (projectSlug === 'default' && boardSlug === 'default')) {
+    // Direct board ID — skip resolution, use legacy path
+    return (
+      <APIProvider boardId={boardSlug !== 'default' ? boardSlug : undefined}>
+        <ReactFlowProvider>
+          <AppContent />
+        </ReactFlowProvider>
+      </APIProvider>
+    );
+  }
+
+  return <BoardPage projectSlug={projectSlug} boardSlug={boardSlug} />;
 }
 
 export default App;

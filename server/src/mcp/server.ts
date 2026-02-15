@@ -18,12 +18,73 @@ import { HttpNotificationClient } from '../notifications/http-client.js';
 import { v4 as uuidv4 } from 'uuid';
 import * as dotenv from 'dotenv';
 import Dagre from '@dagrejs/dagre';
+import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Load environment variables
 dotenv.config();
 
 // Database instance
 let db: DatabaseManager;
+
+// Auto-detected project context
+let detectedProjectId: string = 'default';
+let defaultBoardId: string = 'default';
+
+/**
+ * Detect the current project from the working directory.
+ * Priority: .getsticky.json > git remote > directory basename
+ */
+function detectProject(): string {
+  // 1. Walk up directories looking for .getsticky.json
+  let dir = process.cwd();
+  const root = path.parse(dir).root;
+  while (dir !== root) {
+    const configPath = path.join(dir, '.getsticky.json');
+    if (fs.existsSync(configPath)) {
+      try {
+        const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+        if (config.project && typeof config.project === 'string') {
+          console.error(`[MCP] Project detected from .getsticky.json: ${config.project}`);
+          return config.project;
+        }
+      } catch {
+        // Ignore parse errors
+      }
+    }
+    dir = path.dirname(dir);
+  }
+
+  // 2. Try git remote URL
+  try {
+    const remote = execSync('git remote get-url origin', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    // Parse: git@github.com:owner/repo.git or https://github.com/owner/repo.git
+    const match = remote.match(/[:/]([^/]+)\/([^/.]+?)(?:\.git)?$/);
+    if (match) {
+      const slug = `${match[1]}-${match[2]}`.toLowerCase();
+      console.error(`[MCP] Project detected from git remote: ${slug}`);
+      return slug;
+    }
+  } catch {
+    // Not a git repo or no remote
+  }
+
+  // 3. Fall back to directory basename
+  const basename = path.basename(process.cwd()).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+  console.error(`[MCP] Project detected from cwd: ${basename}`);
+  return basename || 'default';
+}
+
+/** Resolve board_id from args, using project context as default */
+function resolveBoardId(args: Record<string, unknown>): string {
+  if (args.board_id && typeof args.board_id === 'string') return args.board_id;
+  if (args.project_id && args.board_slug) {
+    const board = db.getBoardBySlug(args.project_id as string, args.board_slug as string);
+    if (board) return board.id;
+  }
+  return defaultBoardId;
+}
 
 // List layout constants — must match frontend ListNode.tsx
 const LIST_ITEM_HEIGHT = 200;
@@ -155,6 +216,46 @@ const tools: Tool[] = [
     inputSchema: {
       type: 'object',
       properties: {},
+    },
+  },
+  {
+    name: 'list_projects',
+    description: 'List all projects',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
+    name: 'create_project',
+    description: 'Create a new project with a default "main" board',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'string',
+          description: 'Project ID (slug, e.g. "my-project")',
+        },
+        name: {
+          type: 'string',
+          description: 'Project display name',
+        },
+      },
+      required: ['id', 'name'],
+    },
+  },
+  {
+    name: 'get_project_boards',
+    description: 'List all boards within a project',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        project_id: {
+          type: 'string',
+          description: 'Project ID',
+        },
+      },
+      required: ['project_id'],
     },
   },
   {
@@ -661,13 +762,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
+      case 'list_projects': {
+        const projects = db.getAllProjects();
+        const result = projects.map((p) => ({
+          ...p,
+          boards: db.getBoardsForProject(p.id),
+        }));
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+        };
+      }
+
+      case 'create_project': {
+        const err = validateArgs(a, ['id', 'name']);
+        if (err) return err;
+        const { id: newProjId, name: newProjName } = a as any;
+        const project = db.getOrCreateProject(newProjId, newProjName);
+        const projBoard = db.getOrCreateBoard(newProjId, 'main', 'Main');
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ project, defaultBoard: projBoard }, null, 2) }],
+        };
+      }
+
+      case 'get_project_boards': {
+        const err = validateArgs(a, ['project_id']);
+        if (err) return err;
+        const { project_id: projBoardsId } = a as any;
+        const boards = db.getBoardsForProject(projBoardsId);
+        return {
+          content: [{ type: 'text', text: JSON.stringify(boards, null, 2) }],
+        };
+      }
+
       case 'create_node': {
         const err = validateArgs(a, ['type', 'content']);
         if (err) return err;
         const { type, content, context, parent_id, board_id } = a as any;
         // Assign a non-overlapping position when the caller didn't provide one
         if (!content.position && !parent_id) {
-          const bId = board_id || 'default';
+          const bId = resolveBoardId(a);
           content.position = findFreePosition(bId);
         }
         const node = await db.createNode({
@@ -676,7 +809,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           content: JSON.stringify(content),
           context: context || '',
           parent_id: parent_id || null,
-          board_id: board_id || 'default',
+          board_id: resolveBoardId(a),
         });
 
         return {
@@ -1046,9 +1179,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const err = validateArgs(a, ['title', 'content']);
         if (err) return err;
         console.error('[MCP] create_review');
-        const { title, content: reviewContent, context: reviewContext, board_id: reviewBoardId } = a as any;
-        const bId = reviewBoardId || 'default';
-        const reviewPos = findFreePosition(bId);
+        const { title, content: reviewContent, context: reviewContext } = a as any;
+        const reviewResolvedBoardId = resolveBoardId(a);
+        const reviewPos = findFreePosition(reviewResolvedBoardId);
 
         const reviewNode = await db.createNode({
           id: uuidv4(),
@@ -1064,7 +1197,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }),
           context: reviewContext || '',
           parent_id: null,
-          board_id: reviewBoardId || 'default',
+          board_id: reviewResolvedBoardId,
         });
 
         // Node is persisted in DB. Frontend will pick it up on next
@@ -1391,6 +1524,14 @@ async function main() {
   // Initialize database
   db = await initDB(process.env.DB_PATH);
   console.error('Database initialized');
+
+  // Auto-detect project from working directory
+  const projectSlug = detectProject();
+  const project = db.getOrCreateProject(projectSlug, projectSlug);
+  const projectDefaultBoard = db.getOrCreateBoard(projectSlug, 'main', 'Main');
+  detectedProjectId = project.id;
+  defaultBoardId = projectDefaultBoard.id;
+  console.error(`Project: ${detectedProjectId}, default board: ${defaultBoardId}`);
 
   // Wire up cross-process notifications: DB mutations → HTTP POST → WS server → frontends
   const notifier = new HttpNotificationClient(process.env.WS_SERVER_URL);

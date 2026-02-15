@@ -25,17 +25,18 @@ const VALID_WS_TYPES = new Set([
   'ask_claude', 'comment_ask_claude',
   'get_settings', 'update_settings',
   'create_board', 'delete_board', 'list_boards',
+  'list_projects', 'create_project', 'delete_project', 'get_project_boards',
   'update_viewport',
 ]);
 
 export interface WSMessage {
-  type: 'create_node' | 'update_node' | 'delete_node' | 'create_edge' | 'delete_edge' | 'add_context' | 'search_context' | 'ask_claude' | 'comment_ask_claude' | 'get_settings' | 'update_settings' | 'create_board' | 'delete_board' | 'list_boards' | 'update_viewport';
+  type: 'create_node' | 'update_node' | 'delete_node' | 'create_edge' | 'delete_edge' | 'add_context' | 'search_context' | 'ask_claude' | 'comment_ask_claude' | 'get_settings' | 'update_settings' | 'create_board' | 'delete_board' | 'list_boards' | 'list_projects' | 'create_project' | 'delete_project' | 'get_project_boards' | 'update_viewport';
   data: any;
   id?: string;
 }
 
 export interface WSResponse {
-  type: 'success' | 'error' | 'node_created' | 'node_updated' | 'node_deleted' | 'edge_created' | 'edge_deleted' | 'context_added' | 'search_results' | 'claude_response' | 'claude_streaming' | 'comment_claude_response' | 'settings' | 'board_created' | 'board_deleted' | 'boards_list';
+  type: 'success' | 'error' | 'node_created' | 'node_updated' | 'node_deleted' | 'edge_created' | 'edge_deleted' | 'context_added' | 'search_results' | 'claude_response' | 'claude_streaming' | 'comment_claude_response' | 'settings' | 'board_created' | 'board_deleted' | 'boards_list' | 'projects_list' | 'project_created' | 'project_deleted' | 'project_boards';
   data?: any;
   error?: string;
   requestId?: string;
@@ -139,6 +140,46 @@ export class GetStickyWSServer {
           res.end(JSON.stringify({ error: 'Invalid JSON' }));
         }
       });
+      return;
+    }
+
+    // CORS headers for dev mode (frontend on different port)
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    // API: GET /api/projects — list all projects with their boards
+    if (req.method === 'GET' && req.url?.startsWith('/api/projects')) {
+      const projects = this.db.getAllProjects();
+      const result = projects.map((p) => ({
+        ...p,
+        boards: this.db.getBoardsForProject(p.id),
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    // API: GET /api/resolve?project=X&board=Y — resolve URL slugs to board ID
+    if (req.method === 'GET' && req.url?.startsWith('/api/resolve')) {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const projectSlug = url.searchParams.get('project') || 'default';
+      const boardSlug = url.searchParams.get('board') || 'main';
+
+      // Auto-create project and board if they don't exist
+      this.db.getOrCreateProject(projectSlug, projectSlug);
+      const board = this.db.getOrCreateBoard(projectSlug, boardSlug, boardSlug);
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ boardId: board.id, projectId: projectSlug, boardSlug: board.slug }));
       return;
     }
 
@@ -314,6 +355,68 @@ export class GetStickyWSServer {
           this.send(ws, {
             type: 'boards_list',
             data: boards,
+            requestId,
+          });
+          break;
+        }
+
+        case 'list_projects': {
+          const projects = this.db.getAllProjects();
+          this.send(ws, {
+            type: 'projects_list',
+            data: projects,
+            requestId,
+          });
+          break;
+        }
+
+        case 'create_project': {
+          const { id: projId, name: projName } = message.data;
+          if (!projName && !projId) {
+            this.sendError(ws, 'Project name or id is required', requestId);
+            return;
+          }
+          const projectId = projId || projName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+          const project = this.db.getOrCreateProject(projectId, projName || projectId);
+          // Also create a default "main" board for the project
+          this.db.getOrCreateBoard(projectId, 'main', 'Main');
+          this.send(ws, {
+            type: 'project_created',
+            data: project,
+            requestId,
+          });
+          break;
+        }
+
+        case 'delete_project': {
+          const { id: delProjId } = message.data;
+          if (!delProjId) {
+            this.sendError(ws, 'Project ID is required', requestId);
+            return;
+          }
+          const projSuccess = await this.db.deleteProject(delProjId);
+          if (!projSuccess) {
+            this.sendError(ws, `Project not found: ${delProjId}`, requestId);
+            return;
+          }
+          this.send(ws, {
+            type: 'project_deleted',
+            data: { id: delProjId },
+            requestId,
+          });
+          break;
+        }
+
+        case 'get_project_boards': {
+          const { project_id: getBoardsProjId } = message.data;
+          if (!getBoardsProjId) {
+            this.sendError(ws, 'project_id is required', requestId);
+            return;
+          }
+          const projectBoards = this.db.getBoardsForProject(getBoardsProjId);
+          this.send(ws, {
+            type: 'project_boards',
+            data: projectBoards,
             requestId,
           });
           break;

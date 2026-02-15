@@ -197,14 +197,25 @@ export class GetStickyAPI {
 // ============================================================================
 
 let apiInstance: GetStickyAPI | null = null;
+let apiBoardId: string | undefined;
 
 /**
- * Get or create API instance
+ * Get or create API instance.
+ * If boardId is explicitly provided and differs, recreates the connection.
+ * If called without boardId, returns the existing instance.
  */
 export function getAPI(wsUrl?: string, boardId?: string): GetStickyAPI {
-  if (!apiInstance) {
-    apiInstance = new GetStickyAPI(wsUrl, boardId);
+  if (apiInstance) {
+    // Only recreate if a new boardId is explicitly provided and differs
+    if (boardId !== undefined && apiBoardId !== boardId) {
+      apiInstance.disconnect();
+      apiInstance = null;
+    } else {
+      return apiInstance;
+    }
   }
+  apiBoardId = boardId;
+  apiInstance = new GetStickyAPI(wsUrl, boardId);
   return apiInstance;
 }
 
@@ -215,5 +226,6 @@ export function destroyAPI(): void {
   if (apiInstance) {
     apiInstance.disconnect();
     apiInstance = null;
+    apiBoardId = undefined;
   }
 }

@@ -4,9 +4,18 @@
 
 export type NodeType = 'conversation' | 'diagram' | 'diagramBox' | 'container' | 'terminal' | 'richtext' | 'stickyNote' | 'list';
 
-export interface Board {
-  id: string;
+export interface Project {
+  id: string;         // slug, e.g. "alpha"
   name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Board {
+  id: string;          // "alpha:main" (globally unique)
+  name: string;
+  slug: string;        // "main" (unique within project)
+  project_id: string;  // FK → projects.id
   viewport_x?: number | null;
   viewport_y?: number | null;
   viewport_zoom?: number | null;

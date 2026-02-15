@@ -221,6 +221,7 @@ export class WebSocketClient {
 
 // Singleton instance
 let wsClient: WebSocketClient | null = null;
+let wsClientBoardId: string | undefined;
 
 /**
  * Derive WebSocket URL from environment or page origin.
@@ -241,14 +242,23 @@ function getDefaultWsUrl(): string {
 }
 
 /**
- * Get or create WebSocket client instance
+ * Get or create WebSocket client instance.
+ * If boardId is explicitly provided and differs, recreates the connection.
+ * If called without boardId, returns the existing instance.
  */
 export function getWebSocketClient(url?: string, boardId?: string): WebSocketClient {
-  if (!wsClient) {
-    const baseUrl = url || getDefaultWsUrl();
-    const fullUrl = boardId ? `${baseUrl}?board=${boardId}` : baseUrl;
-    wsClient = new WebSocketClient({ url: fullUrl });
+  if (wsClient) {
+    if (boardId !== undefined && wsClientBoardId !== boardId) {
+      wsClient.disconnect();
+      wsClient = null;
+    } else {
+      return wsClient;
+    }
   }
+  wsClientBoardId = boardId;
+  const baseUrl = url || getDefaultWsUrl();
+  const fullUrl = boardId ? `${baseUrl}?board=${boardId}` : baseUrl;
+  wsClient = new WebSocketClient({ url: fullUrl });
   return wsClient;
 }
 
@@ -260,4 +270,20 @@ export function destroyWebSocketClient(): void {
     wsClient.disconnect();
     wsClient = null;
   }
+}
+
+/**
+ * Derive the HTTP API base URL.
+ * In dev mode, use VITE_API_URL. In production, derive from page origin.
+ */
+export function getApiBaseUrl(): string {
+  // Check for Vite env variable first (dev mode)
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+  // Derive from page origin (production: frontend served from same port)
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return 'http://localhost:8080';
 }

@@ -9,7 +9,7 @@
 import { EventEmitter } from 'events';
 import { SQLiteDB } from './sqlite';
 import { LanceDBManager } from './lancedb';
-import { Node, Edge, NodeType, ContextSource, Board } from '../types';
+import { Node, Edge, NodeType, ContextSource, Board, Project } from '../types';
 import type { NotificationPayload } from '../notifications/types';
 
 export class DatabaseManager extends EventEmitter {
@@ -292,13 +292,54 @@ export class DatabaseManager extends EventEmitter {
   }
 
   /**
+   * Project operations
+   */
+
+  createProject(id: string, name: string): Project {
+    return this.sqlite.createProject(id, name);
+  }
+
+  getProject(id: string): Project | null {
+    return this.sqlite.getProject(id);
+  }
+
+  getAllProjects(): Project[] {
+    return this.sqlite.getAllProjects();
+  }
+
+  async deleteProject(id: string): Promise<boolean> {
+    // Clean up LanceDB contexts for all boards in this project
+    const boards = this.sqlite.getBoardsForProject(id);
+    for (const board of boards) {
+      await this.lancedb.deleteBoardContexts(board.id);
+    }
+    return this.sqlite.deleteProject(id);
+  }
+
+  getOrCreateProject(id: string, name: string): Project {
+    return this.sqlite.getOrCreateProject(id, name);
+  }
+
+  /**
    * Board operations
    */
 
-  createBoard(id: string, name: string): Board {
-    const board = this.sqlite.createBoard(id, name);
+  createBoard(id: string, name: string, projectId?: string, slug?: string): Board {
+    const board = this.sqlite.createBoard(id, name, projectId, slug);
     this.emitMutation('board_created', board, id);
     return board;
+  }
+
+  getBoardBySlug(projectId: string, slug: string): Board | null {
+    return this.sqlite.getBoardBySlug(projectId, slug);
+  }
+
+  getBoardsForProject(projectId: string): Board[] {
+    return this.sqlite.getBoardsForProject(projectId);
+  }
+
+  getOrCreateBoard(projectId: string, slug: string, name: string): Board {
+    return this.sqlite.getOrCreateBoard(projectId, slug, name);
   }
 
   getBoard(id: string): Board | null {

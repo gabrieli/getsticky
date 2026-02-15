@@ -4,7 +4,7 @@
  */
 
 import Database from 'better-sqlite3';
-import { Node, Edge, ContextEntry, NodeType, ContextSource, Board } from '../types';
+import { Node, Edge, ContextEntry, NodeType, ContextSource, Board, Project } from '../types';
 import path from 'path';
 import fs from 'fs';
 
@@ -26,7 +26,22 @@ export class SQLiteDB {
     // Enable foreign keys
     this.db.pragma('foreign_keys = ON');
 
-    // Create boards table
+    // Create projects table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Seed default project
+    this.db.exec(`
+      INSERT OR IGNORE INTO projects (id, name) VALUES ('default', 'Default Project')
+    `);
+
+    // Create boards table (original schema — migrations add slug/project_id below)
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS boards (
         id TEXT PRIMARY KEY,
@@ -36,7 +51,7 @@ export class SQLiteDB {
       )
     `);
 
-    // Seed default board
+    // Seed default board (original columns only — slug/project_id set after migration)
     this.db.exec(`
       INSERT OR IGNORE INTO boards (id, name) VALUES ('default', 'Default Board')
     `);
@@ -62,9 +77,26 @@ export class SQLiteDB {
       this.db.exec(`ALTER TABLE nodes ADD COLUMN board_id TEXT NOT NULL DEFAULT 'default'`);
     }
 
-    // Migrate: add viewport columns to boards table
+    // Migrate: add slug and project_id columns to boards table
     const boardColumns = this.db.pragma('table_info(boards)') as { name: string }[];
-    if (!boardColumns.some((col) => col.name === 'viewport_x')) {
+    if (!boardColumns.some((col) => col.name === 'slug')) {
+      this.db.exec(`ALTER TABLE boards ADD COLUMN slug TEXT NOT NULL DEFAULT ''`);
+      this.db.exec(`ALTER TABLE boards ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default'`);
+      // Set slug to 'main' for the default board, and to the id for all others
+      this.db.exec(`UPDATE boards SET slug = 'main' WHERE id = 'default'`);
+      this.db.exec(`UPDATE boards SET slug = id WHERE slug = ''`);
+    }
+    // Ensure the default board always has correct slug/project_id (covers fresh and migrated DBs)
+    this.db.exec(`UPDATE boards SET slug = 'main', project_id = 'default' WHERE id = 'default' AND slug = ''`);
+
+    // Create unique index on (project_id, slug) for boards
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_boards_project_slug ON boards(project_id, slug)
+    `);
+
+    // Migrate: add viewport columns to boards table
+    const boardColumnsForViewport = this.db.pragma('table_info(boards)') as { name: string }[];
+    if (!boardColumnsForViewport.some((col) => col.name === 'viewport_x')) {
       this.db.exec(`BEGIN`);
       this.db.exec(`ALTER TABLE boards ADD COLUMN viewport_x REAL`);
       this.db.exec(`ALTER TABLE boards ADD COLUMN viewport_y REAL`);
@@ -318,15 +350,83 @@ export class SQLiteDB {
   }
 
   /**
+   * Project CRUD operations
+   */
+
+  createProject(id: string, name: string): Project {
+    const stmt = this.db.prepare(`
+      INSERT INTO projects (id, name) VALUES (?, ?)
+    `);
+    stmt.run(id, name);
+    return this.getProject(id)!;
+  }
+
+  getProject(id: string): Project | null {
+    const stmt = this.db.prepare('SELECT * FROM projects WHERE id = ?');
+    return stmt.get(id) as Project | null;
+  }
+
+  getAllProjects(): Project[] {
+    const stmt = this.db.prepare('SELECT * FROM projects ORDER BY created_at DESC');
+    return stmt.all() as Project[];
+  }
+
+  deleteProject(id: string): boolean {
+    if (id === 'default') {
+      throw new Error('Cannot delete the default project');
+    }
+    const project = this.getProject(id);
+    if (!project) return false;
+
+    const deleteTransaction = this.db.transaction(() => {
+      // Get all boards in this project
+      const boards = this.getBoardsForProject(id);
+      for (const board of boards) {
+        // Delete context_chain entries for this board's nodes
+        this.db.prepare(`
+          DELETE FROM context_chain WHERE node_id IN (
+            SELECT id FROM nodes WHERE board_id = ?
+          )
+        `).run(board.id);
+        // Delete edges
+        this.db.prepare(`
+          DELETE FROM edges WHERE source_id IN (
+            SELECT id FROM nodes WHERE board_id = ?
+          ) OR target_id IN (
+            SELECT id FROM nodes WHERE board_id = ?
+          )
+        `).run(board.id, board.id);
+        // Delete nodes
+        this.db.prepare('DELETE FROM nodes WHERE board_id = ?').run(board.id);
+      }
+      // Delete all boards in this project
+      this.db.prepare('DELETE FROM boards WHERE project_id = ?').run(id);
+      // Delete the project
+      this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    });
+
+    deleteTransaction();
+    return true;
+  }
+
+  /** Idempotent: get existing project or create it */
+  getOrCreateProject(id: string, name: string): Project {
+    const existing = this.getProject(id);
+    if (existing) return existing;
+    return this.createProject(id, name);
+  }
+
+  /**
    * Board CRUD operations
    */
 
-  createBoard(id: string, name: string): Board {
+  createBoard(id: string, name: string, projectId: string = 'default', slug?: string): Board {
+    const boardSlug = slug || id;
     const stmt = this.db.prepare(`
-      INSERT INTO boards (id, name)
-      VALUES (?, ?)
+      INSERT INTO boards (id, name, slug, project_id)
+      VALUES (?, ?, ?, ?)
     `);
-    stmt.run(id, name);
+    stmt.run(id, name, boardSlug, projectId);
     return this.getBoard(id)!;
   }
 
@@ -338,6 +438,24 @@ export class SQLiteDB {
   getAllBoards(): Board[] {
     const stmt = this.db.prepare('SELECT * FROM boards ORDER BY created_at DESC');
     return stmt.all() as Board[];
+  }
+
+  getBoardBySlug(projectId: string, slug: string): Board | null {
+    const stmt = this.db.prepare('SELECT * FROM boards WHERE project_id = ? AND slug = ?');
+    return stmt.get(projectId, slug) as Board | null;
+  }
+
+  getBoardsForProject(projectId: string): Board[] {
+    const stmt = this.db.prepare('SELECT * FROM boards WHERE project_id = ? ORDER BY created_at DESC');
+    return stmt.all(projectId) as Board[];
+  }
+
+  /** Idempotent: get existing board or create it */
+  getOrCreateBoard(projectId: string, slug: string, name: string): Board {
+    const existing = this.getBoardBySlug(projectId, slug);
+    if (existing) return existing;
+    const boardId = `${projectId}:${slug}`;
+    return this.createBoard(boardId, name, projectId, slug);
   }
 
   updateBoardViewport(boardId: string, x: number, y: number, zoom: number): void {
