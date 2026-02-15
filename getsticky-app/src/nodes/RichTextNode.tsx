@@ -201,13 +201,6 @@ function RichTextNodeComponent({ data, id, selected }: { data: RichTextNodeData;
     }
   };
 
-  // Auto-resize title textarea
-  useEffect(() => {
-    if (titleRef.current) {
-      titleRef.current.style.height = 'auto';
-      titleRef.current.style.height = titleRef.current.scrollHeight + 'px';
-    }
-  }, [data.title]);
 
   // Fire Claude for a given thread
   const triggerClaude = useCallback(
@@ -378,8 +371,6 @@ function RichTextNodeComponent({ data, id, selected }: { data: RichTextNodeData;
           rows={1}
           onChange={(e) => {
             api.updateNode({ id, data: { title: e.target.value } });
-            e.target.style.height = 'auto';
-            e.target.style.height = e.target.scrollHeight + 'px';
           }}
           style={{
             background: 'transparent',
@@ -396,7 +387,7 @@ function RichTextNodeComponent({ data, id, selected }: { data: RichTextNodeData;
             lineHeight: '1.4',
             fontFamily: 'inherit',
             cursor: selected ? 'text' : 'inherit',
-            overflow: 'hidden',
+            fieldSizing: 'content',
           }}
         />
       </div>
