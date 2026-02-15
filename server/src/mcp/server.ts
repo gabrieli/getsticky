@@ -159,13 +159,13 @@ const tools: Tool[] = [
   },
   {
     name: 'create_node',
-    description: 'Create a new node on the canvas (conversation, diagram, richtext, or terminal)',
+    description: 'Create a new node on the canvas (diagram, richtext, stickyNote, list, etc.)',
     inputSchema: {
       type: 'object',
       properties: {
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote', 'list'],
+          enum: ['diagram', 'diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
           description: 'Type of node to create',
         },
         content: {
@@ -276,7 +276,7 @@ const tools: Tool[] = [
         },
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote', 'list'],
+          enum: ['diagram', 'diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
           description: 'Type of the new branch node',
         },
         content: {
@@ -378,7 +378,7 @@ const tools: Tool[] = [
       properties: {
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote', 'list'],
+          enum: ['diagram', 'diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
           description: 'Filter by node type (optional)',
         },
         board_id: {

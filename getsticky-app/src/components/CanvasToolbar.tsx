@@ -42,21 +42,7 @@ const tools: ToolItem[] = [
     nodeType: 'diagram',
     defaultData: { title: 'Diagram', description: '' },
   },
-  {
-    id: 'conversation',
-    label: 'Conversation',
-    icon: '\u2026',
-    nodeType: 'conversation',
-    defaultData: { question: '', response: '' },
-  },
-  {
-    id: 'terminal',
-    label: 'Terminal',
-    icon: '>_',
-    nodeType: 'terminal',
-    defaultData: {},
-  },
-  {
+{
     id: 'list',
     label: 'List',
     icon: '\u2630',
@@ -154,10 +140,9 @@ export default function CanvasToolbar({
                       : isHovered
                         ? '#e2e8f0'
                         : '#94a3b8',
-                fontSize: tool.id === 'terminal' ? '11px' : '16px',
+                fontSize: '16px',
                 fontWeight: 600,
                 cursor: 'pointer',
-                fontFamily: tool.id === 'terminal' ? 'monospace' : 'inherit',
                 transition: 'background 0.15s, color 0.15s, border-color 0.15s',
               }}
               title={isActive ? `${tool.label} (click canvas to place)` : tool.label}

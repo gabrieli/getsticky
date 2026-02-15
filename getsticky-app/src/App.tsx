@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
-  Controls,
   MiniMap,
   SelectionMode,
   PanOnScrollMode,
@@ -20,12 +19,10 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import ExampleNode from './nodes/ExampleNode';
-import AgentNode from './nodes/AgentNode';
 import RichTextNode from './nodes/RichTextNode';
 import DiagramNode from './nodes/DiagramNode';
 import DiagramBoxNode from './nodes/DiagramBoxNode';
 import ContainerNode from './nodes/ContainerNode';
-import TerminalNode from './nodes/TerminalNode';
 import StickyNoteNode from './nodes/StickyNoteNode';
 import ListNode from './nodes/ListNode';
 import { computeListLayout, LIST_WIDTH } from './nodes/ListNode';
@@ -50,23 +47,19 @@ function withErrorBoundary<P extends { id: string }>(
 
 const nodeTypes: NodeTypes = {
   exampleNode: withErrorBoundary(ExampleNode),
-  agentNode: withErrorBoundary(AgentNode),
   richTextNode: withErrorBoundary(RichTextNode),
   diagramNode: withErrorBoundary(DiagramNode),
   diagramBox: withErrorBoundary(DiagramBoxNode),
   containerNode: withErrorBoundary(ContainerNode as any),
-  terminalNode: withErrorBoundary(TerminalNode),
   stickyNoteNode: withErrorBoundary(StickyNoteNode),
   listNode: withErrorBoundary(ListNode as any),
 };
 
 const nodeTypeMap: Record<string, string> = {
-  conversation: 'agentNode',
   richtext: 'richTextNode',
   diagram: 'diagramNode',
   diagramBox: 'diagramBox',
   container: 'containerNode',
-  terminal: 'terminalNode',
   stickyNote: 'stickyNoteNode',
   list: 'listNode',
 };
@@ -119,7 +112,7 @@ function computeRichTextWidth(content: any): number {
 // Convert a DB node to a React Flow node, applying container parent-child relationships
 function dbNodeToFlowNode(dbNode: any, allDbNodes?: any[]): Node {
   const content = typeof dbNode.content === 'string' ? JSON.parse(dbNode.content) : dbNode.content;
-  const flowType = nodeTypeMap[dbNode.type] || 'agentNode';
+  const flowType = nodeTypeMap[dbNode.type] || 'richTextNode';
 
   const node: Node = {
     id: dbNode.id,
@@ -439,43 +432,9 @@ function AppContent() {
       }
     });
 
-    // Handle Claude responses
+    // Handle Claude responses (legacy — agent node type removed)
     const unsubClaudeResponse = api.on('claude_response', (response: any) => {
-      console.log('[App] claude_response FULL STRUCTURE:', JSON.stringify(response, null, 2));
-
-      // Defensive: Handle both possible formats
-      // Format A: { data: { node: {...} } }
-      // Format B: { questionNodeId, responseNode: {...} }
-
-      let node = null;
-      if (response.data?.node) {
-        // Format A (from FRONTEND_API.md)
-        node = response.data.node;
-        console.log('[App] Using Format A: response.data.node');
-      } else if (response.responseNode) {
-        // Format B (from team-lead's message)
-        node = response.responseNode;
-        console.log('[App] Using Format B: response.responseNode');
-      }
-
-      if (node) {
-        const respAgentName = response.data?.agentName || response.agentName;
-        const newNode: Node = {
-          id: node.id,
-          type: 'agentNode',
-          position: node.position || { x: Math.random() * 400 + 300, y: Math.random() * 300 + 200 },
-          data: {
-            question: JSON.parse(node.content).question,
-            response: JSON.parse(node.content).response,
-            agentName: respAgentName,
-          },
-        };
-
-        setNodes((prev) => [...prev, newNode]);
-        console.log('[App] Created AgentNode:', newNode.id);
-      } else {
-        console.warn('[App] Could not extract node from claude_response:', response);
-      }
+      console.log('[App] claude_response (ignored, agent node removed):', response);
     });
 
     // Handle settings updates
@@ -513,7 +472,7 @@ function AppContent() {
   useEffect(() => {
     setNodes((prev) =>
       prev.map((node) => {
-        if (node.type === 'agentNode' || node.type === 'richTextNode') {
+        if (node.type === 'richTextNode') {
           return { ...node, data: { ...node.data, agentName } };
         }
         return node;
@@ -941,9 +900,9 @@ function AppContent() {
           animated: false,
           style: { stroke: '#475569', strokeWidth: 1.5 },
         }}
+        proOptions={{ hideAttribution: true }}
       >
         <Background />
-        <Controls />
         <CanvasToolbar
           agentName={agentName}
           maskedApiKey={maskedApiKey}
@@ -958,8 +917,6 @@ function AppContent() {
         <MiniMap
           nodeColor={(node) => {
             switch (node.type) {
-              case 'agentNode':
-                return '#6366f1';
               case 'richTextNode':
                 return '#8b5cf6';
               case 'diagramNode':
@@ -968,8 +925,6 @@ function AppContent() {
                 return '#22d3ee';
               case 'containerNode':
                 return 'rgba(71, 85, 105, 0.3)';
-              case 'terminalNode':
-                return '#10b981';
               case 'stickyNoteNode':
                 return '#fef08a';
               case 'listNode':
