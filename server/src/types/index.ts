@@ -2,7 +2,7 @@
  * Core types for GetSticky nodes and context storage
  */
 
-export type NodeType = 'conversation' | 'diagram' | 'diagramBox' | 'container' | 'terminal' | 'richtext' | 'stickyNote';
+export type NodeType = 'conversation' | 'diagram' | 'diagramBox' | 'container' | 'terminal' | 'richtext' | 'stickyNote' | 'list';
 
 export interface Board {
   id: string;
@@ -90,6 +90,8 @@ export interface RichTextContent {
   title?: string;
   isReview?: boolean;
   comments?: CommentThread[];
+  order?: number;
+  status?: ListItemStatus;
 }
 
 export interface TerminalContent {
@@ -107,5 +109,14 @@ export interface ContainerContent {
 export interface StickyNoteContent {
   text: string;
   color: string;
+  position?: { x: number; y: number };
+  order?: number;
+  status?: ListItemStatus;
+}
+
+export type ListItemStatus = 'todo' | 'in-progress' | 'done';
+
+export interface ListContent {
+  title: string;
   position?: { x: number; y: number };
 }

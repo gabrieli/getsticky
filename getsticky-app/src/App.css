@@ -180,6 +180,11 @@ body, html, #root {
   }
 }
 
+/* ListNode: auto-height, fixed width */
+.react-flow__node-listNode {
+  height: fit-content !important;
+}
+
 /* Sticky note placeholder */
 [data-placeholder]:empty::before {
   content: attr(data-placeholder);

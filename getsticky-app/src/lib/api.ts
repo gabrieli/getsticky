@@ -25,6 +25,7 @@ export interface UpdateNodeParams {
   id: string;
   data?: Partial<NodeData>;
   position?: { x: number; y: number };
+  parentId?: string | null;
 }
 
 export interface CreateEdgeParams {
@@ -96,7 +97,11 @@ export class GetStickyAPI {
    * Update an existing node
    */
   updateNode(params: UpdateNodeParams): void {
-    this.ws.send('update_node', params);
+    const msg: any = { id: params.id };
+    if (params.data) msg.data = params.data;
+    if (params.position) msg.position = params.position;
+    if (params.parentId !== undefined) msg.parentId = params.parentId;
+    this.ws.send('update_node', msg);
   }
 
   /**

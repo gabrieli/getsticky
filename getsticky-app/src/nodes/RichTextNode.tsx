@@ -1,5 +1,6 @@
 import { NodeResizer, type Node } from '@xyflow/react';
 import { memo, useState, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { BubbleMenu } from '@tiptap/react/menus';
 import StarterKit from '@tiptap/starter-kit';
@@ -12,6 +13,7 @@ import CommentMark from '../extensions/CommentMark';
 import CommentSidebar from '../components/CommentSidebar';
 import type { CommentThread, CommentMessage } from '../types/comments';
 import { useGrabToDrag } from '../lib/gestures';
+import RichTextModal from '../components/RichTextModal';
 
 const lowlight = createLowlight(common);
 
@@ -35,11 +37,67 @@ export type RichTextNodeData = {
   comments?: CommentThread[];
   width?: number;
   height?: number;
+  inList?: boolean;
+  order?: number;
+  status?: string;
 };
 
 export type RichTextNode = Node<RichTextNodeData>;
 
+// Separate component for compact list mode — avoids conditional hook calls in the main component.
+function RichTextListCard({ data, id, selected }: { data: RichTextNodeData; id: string; selected?: boolean }) {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        background: 'linear-gradient(135deg, #1e1b2e 0%, #0f0e1a 100%)',
+        border: selected ? '1px solid #facc15' : '1px solid #2d3748',
+        borderRadius: '8px',
+        padding: '10px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '6px',
+        cursor: 'pointer',
+        overflow: 'hidden',
+        boxShadow: selected ? '0 4px 12px rgba(250, 204, 21, 0.15)' : '0 2px 6px rgba(0, 0, 0, 0.2)',
+      }}
+      onClick={() => setModalOpen(true)}
+    >
+      <div style={{ fontSize: '11px', fontWeight: 600, color: '#facc15', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+        {data.title || 'Rich Text'}
+      </div>
+      <div style={{ fontSize: '10px', color: '#94a3b8', lineHeight: '1.4', overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' as const }}>
+        {data.plainText || data.text || data.content?.replace(/<[^>]*>/g, '') || 'Empty...'}
+      </div>
+      <div style={{ fontSize: '9px', color: '#475569', marginTop: 'auto' }}>
+        Click to expand
+      </div>
+      {modalOpen && createPortal(
+        <RichTextModal
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          nodeId={id}
+          data={data}
+        />,
+        document.body
+      )}
+    </div>
+  );
+}
+
 function RichTextNodeComponent({ data, id, selected }: { data: RichTextNodeData; id: string; selected?: boolean }) {
+  // Render compact card when inside a list — separate component to avoid conditional hooks
+  if (data.inList) {
+    return <RichTextListCard data={data} id={id} selected={selected} />;
+  }
+
+  return <RichTextFullEditor data={data} id={id} selected={selected} />;
+}
+
+function RichTextFullEditor({ data, id, selected }: { data: RichTextNodeData; id: string; selected?: boolean }) {
   const [isHovered, setIsHovered] = useState(false);
   const api = useAPI();
 

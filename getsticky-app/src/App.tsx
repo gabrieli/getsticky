@@ -27,6 +27,8 @@ import DiagramBoxNode from './nodes/DiagramBoxNode';
 import ContainerNode from './nodes/ContainerNode';
 import TerminalNode from './nodes/TerminalNode';
 import StickyNoteNode from './nodes/StickyNoteNode';
+import ListNode from './nodes/ListNode';
+import { computeListLayout, LIST_WIDTH } from './nodes/ListNode';
 import NodeErrorBoundary from './components/NodeErrorBoundary';
 import { getAPI } from './lib/api';
 import { APIProvider } from './contexts/APIContext';
@@ -55,6 +57,7 @@ const nodeTypes: NodeTypes = {
   containerNode: withErrorBoundary(ContainerNode as any),
   terminalNode: withErrorBoundary(TerminalNode),
   stickyNoteNode: withErrorBoundary(StickyNoteNode),
+  listNode: withErrorBoundary(ListNode as any),
 };
 
 const nodeTypeMap: Record<string, string> = {
@@ -65,11 +68,14 @@ const nodeTypeMap: Record<string, string> = {
   container: 'containerNode',
   terminal: 'terminalNode',
   stickyNote: 'stickyNoteNode',
+  list: 'listNode',
 };
 
 // React Flow requires parent nodes to appear before children in the array
 function sortNodesParentFirst(nodes: Node[]): Node[] {
-  const parentIds = new Set(nodes.filter((n) => n.type === 'containerNode').map((n) => n.id));
+  const parentIds = new Set(
+    nodes.filter((n) => n.type === 'containerNode' || n.type === 'listNode').map((n) => n.id)
+  );
   const parents: Node[] = [];
   const children: Node[] = [];
   const rest: Node[] = [];
@@ -138,13 +144,24 @@ function dbNodeToFlowNode(dbNode: any, allDbNodes?: any[]): Node {
     };
   }
 
-  // If this node has a parent that is a container, set up grouping
+  // List nodes: fixed width, auto height
+  if (flowType === 'listNode') {
+    node.style = {
+      width: LIST_WIDTH,
+    };
+  }
+
+  // If this node has a parent that is a container or list, set up grouping
   if (dbNode.parent_id && allDbNodes) {
     const parent = allDbNodes.find((n: any) => n.id === dbNode.parent_id);
-    if (parent && parent.type === 'container') {
+    if (parent && (parent.type === 'container' || parent.type === 'list')) {
       node.parentId = dbNode.parent_id;
-      node.extent = 'parent';
-      node.expandParent = true;
+      // Only constrain children inside containers, not lists.
+      // List children must be freely draggable so they can be pulled out.
+      if (parent.type === 'container') {
+        node.extent = 'parent';
+        node.expandParent = true;
+      }
     }
   }
 
@@ -178,7 +195,10 @@ function AppContent() {
 
   // Feature 3: Click-to-place
   const [activeTool, setActiveTool] = useState<ToolItem | null>(null);
-  const { screenToFlowPosition, setViewport, fitView } = useReactFlow();
+  const { screenToFlowPosition, setViewport, fitView, getNodes, getViewport } = useReactFlow();
+
+  // Guard: node IDs whose parentId was just changed locally (skip WS echo overwrite)
+  const recentParentChanges = useRef<Set<string>>(new Set());
 
   // Viewport persistence: debounced save
   const viewportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -223,7 +243,7 @@ function AppContent() {
         // We need to check if the parent is already in our nodes list
         const existingAsDb = prev.map((n) => ({
           id: n.id,
-          type: n.type === 'containerNode' ? 'container' : n.type,
+          type: n.type === 'containerNode' ? 'container' : n.type === 'listNode' ? 'list' : n.type,
         }));
         const newNode = dbNodeToFlowNode(dbNode, [...existingAsDb, dbNode]);
         return sortNodesParentFirst([...prev, newNode]);
@@ -240,17 +260,48 @@ function AppContent() {
         ? JSON.parse(dbNode.content)
         : dbNode.content;
 
-      setNodes((prev) =>
-        prev.map((node) =>
-          node.id === dbNode.id
-            ? {
-                ...node,
-                data: { ...node.data, ...updatedContent },
-                position: updatedContent.position || node.position,
+      setNodes((prev) => {
+        const updated = prev.map((node) => {
+          if (node.id !== dbNode.id) return node;
+
+          // If we recently changed parentId locally, skip position + parent overwrite from echo
+          const isGuarded = recentParentChanges.current.has(dbNode.id);
+
+          const patched: Node = {
+            ...node,
+            data: { ...node.data, ...updatedContent },
+            position: isGuarded ? node.position : (updatedContent.position || node.position),
+          };
+
+          // Detect parent_id changes (drag into/out of list)
+          // Skip if we just changed parentId locally (avoid race with WS echo)
+          if (!isGuarded) {
+            const echoParent = dbNode.parent_id || null;
+            const localParent = node.parentId || null;
+            if (echoParent !== localParent) {
+              if (echoParent) {
+                const parent = prev.find((n) => n.id === echoParent);
+                if (parent && (parent.type === 'listNode' || parent.type === 'containerNode')) {
+                  patched.parentId = echoParent;
+                  // Only constrain inside containers, not lists
+                  if (parent.type === 'containerNode') {
+                    patched.extent = 'parent';
+                    patched.expandParent = true;
+                  }
+                }
+              } else {
+                // Cleared parent - node is now free-floating
+                delete patched.parentId;
+                delete patched.extent;
+                delete patched.expandParent;
               }
-            : node
-        )
-      );
+            }
+          }
+
+          return patched;
+        });
+        return sortNodesParentFirst(updated);
+      });
     });
 
     // Handle edge_created events
@@ -505,6 +556,140 @@ function AppContent() {
     setActiveTool(null); // one-shot: deselect after placing
   }, [activeTool, screenToFlowPosition]);
 
+  // Helper: re-parent a node by removing and re-adding it (React Flow doesn't support dynamic parentId changes)
+  const reparentNode = useCallback((nodeId: string, updates: Partial<Node>) => {
+    recentParentChanges.current.add(nodeId);
+    setTimeout(() => recentParentChanges.current.delete(nodeId), 2000);
+    setNodes((prev) => {
+      const existing = prev.find((n) => n.id === nodeId);
+      if (!existing) return prev;
+      const rebuilt: Node = { ...existing, ...updates };
+      // Remove old, add rebuilt
+      const without = prev.filter((n) => n.id !== nodeId);
+      return sortNodesParentFirst([...without, rebuilt]);
+    });
+  }, []);
+
+  // Detach margin in flow-coordinates (zoom-independent).
+  // Multiplied by current zoom to get screen pixels at runtime.
+  const DETACH_MARGIN_FLOW = 40;
+
+  // Try to detach a child node from its parent list when dragged outside bounds.
+  // Returns true if detached, false if still inside.
+  const handleDetachFromList = useCallback((draggedNode: Node, parentNode: Node, zoom: number): boolean => {
+    const parentEl = document.querySelector(`[data-id="${parentNode.id}"]`);
+    const draggedEl = document.querySelector(`[data-id="${draggedNode.id}"]`);
+    if (!parentEl || !draggedEl) return false;
+
+    const parentRect = parentEl.getBoundingClientRect();
+    const draggedRect = draggedEl.getBoundingClientRect();
+    const centerX = draggedRect.left + draggedRect.width / 2;
+    const centerY = draggedRect.top + draggedRect.height / 2;
+    const margin = DETACH_MARGIN_FLOW * zoom;
+
+    if (centerX < parentRect.left - margin || centerX > parentRect.right + margin ||
+        centerY < parentRect.top - margin || centerY > parentRect.bottom + margin) {
+      const absX = parentNode.position.x + draggedNode.position.x;
+      const absY = parentNode.position.y + draggedNode.position.y;
+      apiRef.current.updateNode({
+        id: draggedNode.id,
+        parentId: null,
+        data: { order: undefined, inList: undefined },
+        position: { x: absX, y: absY },
+      });
+      reparentNode(draggedNode.id, {
+        parentId: undefined,
+        extent: undefined,
+        expandParent: undefined,
+        position: { x: absX, y: absY },
+      });
+      return true;
+    }
+    return false;
+  }, [reparentNode]);
+
+  // Find the closest list node whose DOM rect contains a screen point.
+  // Uses closest-center to avoid incorrect targeting with overlapping wrappers.
+  const findTargetList = useCallback((centerX: number, centerY: number, allNodes: Node[], excludeId: string): Node | undefined => {
+    const listNodes = allNodes.filter((n) => n.type === 'listNode' && n.id !== excludeId);
+    let targetList: Node | undefined;
+    let minDist = Infinity;
+    for (const listNode of listNodes) {
+      const listEl = document.querySelector(`[data-id="${listNode.id}"]`);
+      if (!listEl) continue;
+      const listRect = listEl.getBoundingClientRect();
+      if (centerX >= listRect.left && centerX <= listRect.right &&
+          centerY >= listRect.top && centerY <= listRect.bottom) {
+        const dx = centerX - (listRect.left + listRect.width / 2);
+        const dy = centerY - (listRect.top + listRect.height / 2);
+        const dist = dx * dx + dy * dy;
+        if (dist < minDist) {
+          minDist = dist;
+          targetList = listNode;
+        }
+      }
+    }
+    return targetList;
+  }, []);
+
+  // Attach a dragged node to a target list at the next slot.
+  const handleAttachToList = useCallback((draggedNode: Node, targetList: Node, allNodes: Node[]) => {
+    const listChildren = allNodes.filter((n) => n.parentId === targetList.id);
+    const nextOrder = listChildren.length;
+    const layout = computeListLayout(nextOrder + 1);
+    const newPos = layout.positions[nextOrder] || layout.nextSlot;
+
+    const extraData: any = { order: nextOrder };
+    if (draggedNode.type === 'richTextNode') {
+      extraData.inList = true;
+    }
+
+    apiRef.current.updateNode({
+      id: draggedNode.id,
+      parentId: targetList.id,
+      data: extraData,
+      position: newPos,
+    });
+
+    // No extent/expandParent — list children must be freely draggable
+    reparentNode(draggedNode.id, {
+      parentId: targetList.id,
+      extent: undefined,
+      expandParent: undefined,
+      position: newPos,
+      data: { ...draggedNode.data, ...extraData },
+    });
+  }, [reparentNode]);
+
+  // Drag-to-list: on drop, check if dragged node overlaps a list
+  const onNodeDragStop = useCallback((_event: React.MouseEvent, draggedNode: Node) => {
+    if (draggedNode.type === 'listNode' || draggedNode.type === 'containerNode') return;
+
+    const allNodes = getNodes();
+    const { zoom } = getViewport();
+
+    // Already inside a list — check if dragged outside
+    if (draggedNode.parentId) {
+      const parentNode = allNodes.find((n) => n.id === draggedNode.parentId);
+      if (parentNode && parentNode.type === 'listNode') {
+        handleDetachFromList(draggedNode, parentNode, zoom);
+        return;
+      }
+    }
+
+    // Not in a list — check if dropped onto one
+    const draggedEl = document.querySelector(`[data-id="${draggedNode.id}"]`);
+    if (!draggedEl) return;
+    const draggedRect = draggedEl.getBoundingClientRect();
+    const centerX = draggedRect.left + draggedRect.width / 2;
+    const centerY = draggedRect.top + draggedRect.height / 2;
+
+    const targetList = findTargetList(centerX, centerY, allNodes, draggedNode.id);
+    if (!targetList || draggedNode.parentId === targetList.id) return;
+
+    handleAttachToList(draggedNode, targetList, allNodes);
+  }, [getNodes, getViewport, handleDetachFromList, findTargetList, handleAttachToList]);
+
   // Feature 5: Selection change handler
   const onSelectionChange = useCallback(({ nodes: selected }: OnSelectionChangeParams) => {
     setSelectedNodes(selected);
@@ -608,6 +793,7 @@ function AppContent() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onPaneClick={onPaneClick}
+        onNodeDragStop={onNodeDragStop}
         onSelectionChange={onSelectionChange}
         onViewportChange={onViewportChange}
         nodeTypes={nodeTypes}
@@ -658,6 +844,8 @@ function AppContent() {
                 return '#10b981';
               case 'stickyNoteNode':
                 return '#fef08a';
+              case 'listNode':
+                return '#6366f1';
               default:
                 return '#4a5568';
             }

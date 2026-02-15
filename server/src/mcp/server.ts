@@ -38,6 +38,7 @@ function getNodeDimensions(
   if (type === 'richtext') return { w: content.width || 400, h: 300 };
   if (type === 'diagramBox') return { w: 180, h: 80 };
   if (type === 'stickyNote') return { w: 200, h: 200 };
+  if (type === 'list') return { w: 232, h: 300 }; // 232 = 16*2 + 200 (padding + item width)
   return { w: defaultWidth, h: defaultHeight };
 }
 
@@ -106,7 +107,7 @@ const tools: Tool[] = [
       properties: {
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote'],
+          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote', 'list'],
           description: 'Type of node to create',
         },
         content: {
@@ -213,7 +214,7 @@ const tools: Tool[] = [
         },
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote'],
+          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote', 'list'],
           description: 'Type of the new branch node',
         },
         content: {
@@ -315,7 +316,7 @@ const tools: Tool[] = [
       properties: {
         type: {
           type: 'string',
-          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote'],
+          enum: ['conversation', 'diagram', 'diagramBox', 'container', 'richtext', 'terminal', 'stickyNote', 'list'],
           description: 'Filter by node type (optional)',
         },
         board_id: {
@@ -458,6 +459,71 @@ const tools: Tool[] = [
           description: 'Board ID to arrange (defaults to all boards)',
         },
       },
+    },
+  },
+  {
+    name: 'get_list_items',
+    description: 'Get all items (child nodes) of a list, sorted by order. Returns sticky notes and richtext nodes that belong to the list.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        list_id: {
+          type: 'string',
+          description: 'The list node ID to get items from',
+        },
+        status: {
+          type: 'string',
+          enum: ['todo', 'in-progress', 'done'],
+          description: 'Optional: filter items by status',
+        },
+      },
+      required: ['list_id'],
+    },
+  },
+  {
+    name: 'update_list_item_status',
+    description: 'Update the status of a list item (todo, in-progress, done)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        item_id: {
+          type: 'string',
+          description: 'The item (child node) ID to update',
+        },
+        status: {
+          type: 'string',
+          enum: ['todo', 'in-progress', 'done'],
+          description: 'New status for the item',
+        },
+      },
+      required: ['item_id', 'status'],
+    },
+  },
+  {
+    name: 'add_list_item',
+    description: 'Add a new sticky note item to a list at the next order position',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        list_id: {
+          type: 'string',
+          description: 'The list node ID to add the item to',
+        },
+        text: {
+          type: 'string',
+          description: 'Text content for the new sticky note item',
+        },
+        color: {
+          type: 'string',
+          description: 'Color of the sticky note (default: yellow)',
+        },
+        status: {
+          type: 'string',
+          enum: ['todo', 'in-progress', 'done'],
+          description: 'Initial status (default: todo)',
+        },
+      },
+      required: ['list_id', 'text'],
     },
   },
 ];
@@ -1049,6 +1115,103 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               }, null, 2),
             },
           ],
+        };
+      }
+
+      case 'get_list_items': {
+        const err = validateArgs(a, ['list_id']);
+        if (err) return err;
+        const { list_id, status: statusFilter } = a as any;
+
+        const listNode = db.getNode(list_id);
+        if (!listNode || listNode.type !== 'list') {
+          return {
+            content: [{ type: 'text', text: `List node not found: ${list_id}` }],
+            isError: true,
+          };
+        }
+
+        let children = db.getChildNodes(list_id);
+        // Parse content and sort by order
+        const items = children.map((child) => {
+          const content = JSON.parse(child.content);
+          return {
+            id: child.id,
+            type: child.type,
+            text: content.text || content.plainText || content.title || '',
+            order: content.order ?? 999,
+            status: content.status || 'todo',
+            color: content.color,
+          };
+        }).sort((a, b) => a.order - b.order);
+
+        const filtered = statusFilter
+          ? items.filter((item) => item.status === statusFilter)
+          : items;
+
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ list_id, title: JSON.parse(listNode.content).title, items: filtered }, null, 2) }],
+        };
+      }
+
+      case 'update_list_item_status': {
+        const err = validateArgs(a, ['item_id', 'status']);
+        if (err) return err;
+        const { item_id, status: newStatus } = a as any;
+
+        const item = db.getNode(item_id);
+        if (!item) {
+          return {
+            content: [{ type: 'text', text: `Item not found: ${item_id}` }],
+            isError: true,
+          };
+        }
+
+        const content = JSON.parse(item.content);
+        content.status = newStatus;
+        await db.updateNode(item_id, { content: JSON.stringify(content) });
+
+        return {
+          content: [{ type: 'text', text: `Updated item "${content.text || item_id}" status to: ${newStatus}` }],
+        };
+      }
+
+      case 'add_list_item': {
+        const err = validateArgs(a, ['list_id', 'text']);
+        if (err) return err;
+        const { list_id, text: itemText, color = 'yellow', status: itemStatus = 'todo' } = a as any;
+
+        const listNode = db.getNode(list_id);
+        if (!listNode || listNode.type !== 'list') {
+          return {
+            content: [{ type: 'text', text: `List node not found: ${list_id}` }],
+            isError: true,
+          };
+        }
+
+        // Determine next order position
+        const existingChildren = db.getChildNodes(list_id);
+        const maxOrder = existingChildren.reduce((max, child) => {
+          const c = JSON.parse(child.content);
+          return Math.max(max, c.order ?? 0);
+        }, -1);
+
+        const newItem = await db.createNode({
+          id: uuidv4(),
+          type: 'stickyNote',
+          content: JSON.stringify({
+            text: itemText,
+            color,
+            order: maxOrder + 1,
+            status: itemStatus,
+          }),
+          context: '',
+          parent_id: list_id,
+          board_id: listNode.board_id,
+        });
+
+        return {
+          content: [{ type: 'text', text: JSON.stringify(newItem, null, 2) }],
         };
       }
 

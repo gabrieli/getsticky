@@ -85,6 +85,7 @@ export class DatabaseManager extends EventEmitter {
     content?: string;
     context?: string;
     type?: NodeType;
+    parent_id?: string | null;
   }): Promise<Node | null> {
     const node = this.sqlite.updateNode(id, updates);
 

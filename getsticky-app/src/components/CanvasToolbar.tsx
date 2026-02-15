@@ -56,6 +56,13 @@ const tools: ToolItem[] = [
     nodeType: 'terminal',
     defaultData: {},
   },
+  {
+    id: 'list',
+    label: 'List',
+    icon: '\u2630',
+    nodeType: 'list',
+    defaultData: { title: 'New List' },
+  },
 ];
 
 const COLOR_KEYS = Object.keys(STICKY_COLORS);
@@ -142,9 +149,11 @@ export default function CanvasToolbar({
                   ? '#a5b4fc'
                   : tool.id === 'stickyNote'
                     ? '#fef08a'
-                    : isHovered
-                      ? '#e2e8f0'
-                      : '#94a3b8',
+                    : tool.id === 'list'
+                      ? '#a5b4fc'
+                      : isHovered
+                        ? '#e2e8f0'
+                        : '#94a3b8',
                 fontSize: tool.id === 'terminal' ? '11px' : '16px',
                 fontWeight: 600,
                 cursor: 'pointer',

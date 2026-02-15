@@ -290,7 +290,7 @@ export class GetStickyWSServer {
         }
 
         case 'update_node': {
-          const { id, content, data: partialData, context, position } = message.data;
+          const { id, content, data: partialData, context, position, parent_id, parentId } = message.data;
           const updates: any = {};
 
           if (content) {
@@ -307,6 +307,10 @@ export class GetStickyWSServer {
             }
           }
           if (context) updates.context = context;
+
+          // Handle parent_id changes (for list node drag in/out)
+          const newParentId = parent_id !== undefined ? parent_id : parentId;
+          if (newParentId !== undefined) updates.parent_id = newParentId;
 
           const node = await this.db.updateNode(id, updates);
 
