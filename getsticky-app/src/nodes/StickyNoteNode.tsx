@@ -1,7 +1,7 @@
 import { memo, useCallback, useRef, useEffect } from 'react';
-import { type NodeProps } from '@xyflow/react';
+import { NodeResizer, type NodeProps } from '@xyflow/react';
 import { useAPI } from '../contexts/APIContext';
-import { useGrabToDrag, useWheelPassthroughPinch } from '../lib/gestures';
+import { useGrabToDrag } from '../lib/gestures';
 
 const STICKY_COLORS: Record<string, { bg: string; text: string }> = {
   yellow:   { bg: '#fef08a', text: '#713f12' },
@@ -38,7 +38,6 @@ function StickyNoteNode({ id, data, selected }: NodeProps) {
   }, []);
 
   const { containerOnMouseDown, editableClassName } = useGrabToDrag(selected, handleSelectFocus);
-  useWheelPassthroughPinch(textRef, !!selected);
 
   const color = (data.color as string) || 'yellow';
   const palette = STICKY_COLORS[color] || STICKY_COLORS.yellow;
@@ -86,8 +85,7 @@ function StickyNoteNode({ id, data, selected }: NodeProps) {
     <div
       onMouseDown={containerOnMouseDown}
       style={{
-        width: 200,
-        minHeight: 200,
+        width: '100%',
         background: palette.bg,
         color: palette.text,
         borderRadius: '2px',
@@ -102,22 +100,38 @@ function StickyNoteNode({ id, data, selected }: NodeProps) {
         transition: 'box-shadow 0.2s',
       }}
     >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={100}
+        minHeight={50}
+        lineStyle={{
+          borderColor: 'transparent',
+          borderWidth: 6,
+          background: 'transparent',
+        }}
+        handleStyle={{
+          width: 0,
+          height: 0,
+          opacity: 0,
+          border: 'none',
+        }}
+      />
+
       {/* Folded corner */}
       <div
         style={{
           position: 'absolute',
           bottom: 0,
           right: 0,
-          width: 20,
-          height: 20,
+          width: '10cqw',
+          height: '10cqw',
           background: `linear-gradient(135deg, ${palette.bg} 50%, ${palette.text}15 50%)`,
-          borderTopLeftRadius: '4px',
+          borderTopLeftRadius: '2cqw',
           pointerEvents: 'none',
         }}
       />
 
-      {/* Editable text area — no React children, text set via ref */}
-      {/* nodrag/nopan classes + onWheel handler prevent React Flow from intercepting events while allowing pinch-to-zoom */}
+      {/* Editable text area */}
       <div
         ref={textRef}
         className={editableClassName}
@@ -128,13 +142,13 @@ function StickyNoteNode({ id, data, selected }: NodeProps) {
         data-placeholder="Type here..."
         style={{
           flex: 1,
-          padding: '14px 16px',
-          fontSize: '14px',
+          padding: '7cqw 8cqw',
+          fontSize: '7cqw',
           lineHeight: '1.5',
           outline: 'none',
           cursor: 'inherit',
           wordBreak: 'break-word',
-          minHeight: '170px',
+          minHeight: '85cqw',
         }}
       />
 

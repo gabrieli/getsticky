@@ -131,6 +131,13 @@ function dbNodeToFlowNode(dbNode: any, allDbNodes?: any[]): Node {
     };
   }
 
+  // StickyNote nodes need explicit width (height is auto via CSS)
+  if (flowType === 'stickyNoteNode') {
+    node.style = {
+      width: content.width || 200,
+    };
+  }
+
   // If this node has a parent that is a container, set up grouping
   if (dbNode.parent_id && allDbNodes) {
     const parent = allDbNodes.find((n: any) => n.id === dbNode.parent_id);
@@ -438,7 +445,7 @@ function AppContent() {
                 height: change.dimensions!.height,
               },
             });
-          } else if (node && node.type === 'richTextNode') {
+          } else if (node && (node.type === 'richTextNode' || node.type === 'stickyNoteNode')) {
             // Only persist width — height is auto via CSS
             apiRef.current.updateNode({
               id: change.id,
@@ -458,7 +465,7 @@ function AppContent() {
       // (needed for MiniMap accuracy — CSS fit-content overrides height visually
       // but React Flow's internal state would be stale otherwise)
       return updated.map((node) => {
-        if (node.type === 'richTextNode' && node.style?.height != null) {
+        if ((node.type === 'richTextNode' || node.type === 'stickyNoteNode') && node.style?.height != null) {
           const { height, ...rest } = node.style;
           return { ...node, style: rest };
         }

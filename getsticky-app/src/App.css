@@ -35,6 +35,26 @@ body, html, #root {
   container-type: inline-size;
 }
 
+/* StickyNoteNode: auto-height, font scales with width */
+.react-flow__node-stickyNoteNode {
+  height: fit-content !important;
+  container-type: inline-size;
+}
+
+/* StickyNote resize controls — invisible but grabbable */
+.react-flow__node-stickyNoteNode .react-flow__resize-control.line {
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+.react-flow__node-stickyNoteNode .react-flow__resize-control.handle {
+  width: 16px !important;
+  height: 16px !important;
+  opacity: 0 !important;
+  border: none !important;
+  background: transparent !important;
+}
+
 /* RichText resize controls — invisible but grabbable */
 .react-flow__node-richTextNode .react-flow__resize-control.line {
   border-color: transparent !important;
