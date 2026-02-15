@@ -71,6 +71,39 @@ function getNodeDimensions(
   return { w: defaultWidth, h: defaultHeight };
 }
 
+/** Find a position on the canvas that doesn't overlap existing nodes.
+ *  Scans all top-level nodes on the board and places the new node to the
+ *  right of the rightmost one with comfortable spacing. */
+function findFreePosition(
+  boardId: string,
+  newWidth: number,
+  newHeight: number,
+): { x: number; y: number } {
+  const allNodes = db.getAllNodes(boardId);
+  if (allNodes.length === 0) return { x: 100, y: 100 };
+
+  // Collect bounding boxes of all top-level nodes (skip list children)
+  const boxes: { x: number; y: number; w: number; h: number }[] = [];
+  for (const n of allNodes) {
+    if (n.parent_id) continue;
+    const content = JSON.parse(n.content);
+    const pos = content.position;
+    if (!pos) continue;
+    const { w, h } = getNodeDimensions(n.type, content);
+    boxes.push({ x: pos.x, y: pos.y, w, h });
+  }
+
+  if (boxes.length === 0) return { x: 100, y: 100 };
+
+  const SPACING = 80;
+
+  // Place to the right of the rightmost node, vertically aligned with the top-most
+  const maxRight = Math.max(...boxes.map((b) => b.x + b.w));
+  const minY = Math.min(...boxes.map((b) => b.y));
+
+  return { x: maxRight + SPACING, y: minY };
+}
+
 /** Validate that required fields exist in args, returning an error response or null */
 function validateArgs(
   args: Record<string, unknown>,
@@ -636,6 +669,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const err = validateArgs(a, ['type', 'content']);
         if (err) return err;
         const { type, content, context, parent_id, board_id } = a as any;
+        // Assign a non-overlapping position when the caller didn't provide one
+        if (!content.position && !parent_id) {
+          const bId = board_id || 'default';
+          const dims = getNodeDimensions(type, content);
+          content.position = findFreePosition(bId, dims.w, dims.h);
+        }
         const node = await db.createNode({
           id: uuidv4(),
           type,
@@ -1013,6 +1052,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (err) return err;
         console.error('[MCP] create_review');
         const { title, content: reviewContent, context: reviewContext, board_id: reviewBoardId } = a as any;
+        const bId = reviewBoardId || 'default';
+        const reviewDims = getNodeDimensions('richtext', { width: 800 });
+        const reviewPos = findFreePosition(bId, reviewDims.w, reviewDims.h);
 
         const reviewNode = await db.createNode({
           id: uuidv4(),
@@ -1022,7 +1064,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             title,
             isReview: true,
             comments: [],
-            position: { x: 100, y: 100 },
+            position: reviewPos,
+            width: 800,
           }),
           context: reviewContext || '',
           parent_id: null,
