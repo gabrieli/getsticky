@@ -12,7 +12,7 @@ yarn-error.log*
 .env.production.local
 
 # Build outputs
-dist/
+getsticky-app/dist/
 build/
 .next/
 out/
@@ -50,6 +50,10 @@ test-results/
 
 # MCP servers
 .playwright-mcp/
+
+# Published package build artifacts
+app/
+server/dist-mcp/package.json
 
 # Database files
 *.db

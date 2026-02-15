@@ -223,11 +223,30 @@ export class WebSocketClient {
 let wsClient: WebSocketClient | null = null;
 
 /**
+ * Derive WebSocket URL from environment or page origin.
+ * In dev mode, VITE_WS_URL points to the separate WS server.
+ * In production (served from the same server), derive from window.location.
+ */
+function getDefaultWsUrl(): string {
+  // Check for Vite env variable first (dev mode)
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+  // Derive from page origin (production: frontend served from same port)
+  if (typeof window !== 'undefined') {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.host}`;
+  }
+  return 'ws://localhost:8080';
+}
+
+/**
  * Get or create WebSocket client instance
  */
-export function getWebSocketClient(url: string = 'ws://localhost:8080', boardId?: string): WebSocketClient {
+export function getWebSocketClient(url?: string, boardId?: string): WebSocketClient {
   if (!wsClient) {
-    const fullUrl = boardId ? `${url}?board=${boardId}` : url;
+    const baseUrl = url || getDefaultWsUrl();
+    const fullUrl = boardId ? `${baseUrl}?board=${boardId}` : baseUrl;
     wsClient = new WebSocketClient({ url: fullUrl });
   }
   return wsClient;

@@ -1,21 +1,59 @@
 {
   "name": "getsticky",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "version": "0.1.0",
+  "description": "AI conversations on an infinite canvas — branch, diagram, and explore ideas with Claude",
+  "main": "server/dist/index.js",
+  "bin": {
+    "getsticky": "./bin/getsticky.js",
+    "getsticky-mcp": "./server/dist-mcp/mcp/server.js"
+  },
+  "files": [
+    "bin/",
+    "server/dist/",
+    "server/dist-mcp/",
+    "app/",
+    "LICENSE"
+  ],
   "scripts": {
+    "build:server": "cd server && npm run build",
+    "build:mcp": "cd server && npm run build:mcp && echo '{\"type\":\"module\"}' > dist-mcp/package.json",
+    "build:app": "cd getsticky-app && npx vite build && cp -r dist ../app",
+    "build": "npm run build:server && npm run build:mcp && npm run build:app",
+    "prepublishOnly": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/gabrieli/getsticky.git"
   },
-  "keywords": [],
+  "keywords": [
+    "ai",
+    "canvas",
+    "claude",
+    "mcp",
+    "infinite-canvas",
+    "react-flow",
+    "sticky-notes"
+  ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "bugs": {
     "url": "https://github.com/gabrieli/getsticky/issues"
   },
-  "homepage": "https://github.com/gabrieli/getsticky#readme"
+  "homepage": "https://github.com/gabrieli/getsticky#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@dagrejs/dagre": "^2.0.4",
+    "@lancedb/lancedb": "^0.26.2",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^17.2.4",
+    "openai": "^6.21.0",
+    "uuid": "^13.0.0",
+    "ws": "^8.19.0"
+  }
 }

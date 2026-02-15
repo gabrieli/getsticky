@@ -14,6 +14,7 @@ dotenv.config();
 const WS_PORT = parseInt(process.env.WS_PORT || '8080', 10);
 const DB_PATH = process.env.DB_PATH || './getsticky-data';
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const STATIC_DIR = process.env.GETSTICKY_STATIC_DIR || undefined;
 
 async function main() {
   console.log('Starting GetSticky Server...');
@@ -25,7 +26,7 @@ async function main() {
 
   // Start WebSocket server
   console.log(`Starting WebSocket server on port ${WS_PORT}...`);
-  const wsServer = new GetStickyWSServer(WS_PORT, db, ANTHROPIC_API_KEY);
+  const wsServer = new GetStickyWSServer(WS_PORT, db, ANTHROPIC_API_KEY, STATIC_DIR);
 
   // Check for API key: DB takes priority, then env
   const dbApiKey = db.getSetting('anthropic_api_key');
@@ -55,6 +56,9 @@ async function main() {
   console.log('GetSticky Server ready!');
   console.log(`WebSocket server: ws://localhost:${WS_PORT}`);
   console.log(`Database path: ${DB_PATH}`);
+  if (STATIC_DIR) {
+    console.log(`Frontend: http://localhost:${WS_PORT}`);
+  }
 }
 
 main().catch((error) => {

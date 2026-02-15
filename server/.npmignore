@@ -1,0 +1,9 @@
+# Only exclude non-build artifacts from the npm package
+node_modules/
+src/
+getsticky-data/
+test-data/
+*.db
+*.db-shm
+*.db-wal
+.env

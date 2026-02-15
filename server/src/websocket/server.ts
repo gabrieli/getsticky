@@ -8,6 +8,8 @@
  */
 
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { IncomingMessage } from 'http';
 import { DatabaseManager } from '../db/index';
@@ -60,9 +62,29 @@ export class GetStickyWSServer {
   private boardClients: Map<string, Set<WebSocket>> = new Map();
   private clientBoard: Map<WebSocket, string> = new Map();
   private anthropic: Anthropic | null = null;
+  private staticDir: string | null;
 
-  constructor(port: number, db: DatabaseManager, anthropicApiKey?: string) {
+  private static MIME_TYPES: Record<string, string> = {
+    '.html': 'text/html',
+    '.js': 'application/javascript',
+    '.css': 'text/css',
+    '.json': 'application/json',
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.eot': 'application/vnd.ms-fontobject',
+    '.map': 'application/json',
+  };
+
+  constructor(port: number, db: DatabaseManager, anthropicApiKey?: string, staticDir?: string) {
     this.db = db;
+    this.staticDir = staticDir || null;
 
     // Create HTTP server that handles REST endpoints and upgrades to WS
     this.httpServer = http.createServer((req, res) => {
@@ -117,6 +139,39 @@ export class GetStickyWSServer {
           res.end(JSON.stringify({ error: 'Invalid JSON' }));
         }
       });
+      return;
+    }
+
+    // Serve static files if configured
+    if (this.staticDir && req.method === 'GET') {
+      const urlPath = req.url?.split('?')[0] || '/';
+      // Prevent directory traversal
+      const safePath = path.normalize(urlPath).replace(/^(\.\.[/\\])+/, '');
+      let filePath = path.join(this.staticDir, safePath);
+
+      // Check if file exists; if not and it looks like a SPA route, serve index.html
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        const ext = path.extname(safePath);
+        if (!ext) {
+          // SPA fallback: serve index.html for routes without file extensions
+          filePath = path.join(this.staticDir, 'index.html');
+        } else {
+          res.writeHead(404);
+          res.end();
+          return;
+        }
+      }
+
+      try {
+        const data = fs.readFileSync(filePath);
+        const ext = path.extname(filePath);
+        const contentType = GetStickyWSServer.MIME_TYPES[ext] || 'application/octet-stream';
+        res.writeHead(200, { 'Content-Type': contentType });
+        res.end(data);
+      } catch {
+        res.writeHead(500);
+        res.end();
+      }
       return;
     }
 
