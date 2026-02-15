@@ -74,11 +74,7 @@ function getNodeDimensions(
 /** Find a position on the canvas that doesn't overlap existing nodes.
  *  Scans all top-level nodes on the board and places the new node to the
  *  right of the rightmost one with comfortable spacing. */
-function findFreePosition(
-  boardId: string,
-  newWidth: number,
-  newHeight: number,
-): { x: number; y: number } {
+function findFreePosition(boardId: string): { x: number; y: number } {
   const allNodes = db.getAllNodes(boardId);
   if (allNodes.length === 0) return { x: 100, y: 100 };
 
@@ -672,8 +668,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         // Assign a non-overlapping position when the caller didn't provide one
         if (!content.position && !parent_id) {
           const bId = board_id || 'default';
-          const dims = getNodeDimensions(type, content);
-          content.position = findFreePosition(bId, dims.w, dims.h);
+          content.position = findFreePosition(bId);
         }
         const node = await db.createNode({
           id: uuidv4(),
@@ -1053,8 +1048,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         console.error('[MCP] create_review');
         const { title, content: reviewContent, context: reviewContext, board_id: reviewBoardId } = a as any;
         const bId = reviewBoardId || 'default';
-        const reviewDims = getNodeDimensions('richtext', { width: 800 });
-        const reviewPos = findFreePosition(bId, reviewDims.w, reviewDims.h);
+        const reviewPos = findFreePosition(bId);
 
         const reviewNode = await db.createNode({
           id: uuidv4(),
