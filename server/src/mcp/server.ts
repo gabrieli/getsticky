@@ -25,6 +25,35 @@ dotenv.config();
 // Database instance
 let db: DatabaseManager;
 
+// List layout constants — must match frontend ListNode.tsx
+const LIST_ITEM_HEIGHT = 200;
+const LIST_GAP = 12;
+const LIST_PADDING = 16;
+const LIST_HEADER_HEIGHT = 48;
+const LIST_ITEM_WIDTH = 200;
+
+/** Compute the slot position for a list child at a given order index */
+function listSlotPosition(order: number): { x: number; y: number } {
+  return {
+    x: LIST_PADDING,
+    y: LIST_HEADER_HEIGHT + LIST_PADDING + order * (LIST_ITEM_HEIGHT + LIST_GAP),
+  };
+}
+
+/** Reflow a list's children: sort by current order then reassign sequential orders + positions */
+async function reflowListChildren(listId: string) {
+  const children = db.getChildNodes(listId)
+    .map((c) => ({ node: c, content: JSON.parse(c.content) }))
+    .sort((a, b) => (a.content.order ?? 999) - (b.content.order ?? 999));
+
+  for (let i = 0; i < children.length; i++) {
+    const { node, content } = children[i];
+    content.order = i;
+    content.position = listSlotPosition(i);
+    await db.updateNode(node.id, { content: JSON.stringify(content) });
+  }
+}
+
 /** Compute default width/height for a node type (shared by layout tools) */
 function getNodeDimensions(
   type: string,
@@ -528,6 +557,24 @@ const tools: Tool[] = [
         },
       },
       required: ['list_id', 'text'],
+    },
+  },
+  {
+    name: 'move_to_list',
+    description: 'Move a node into a list (or detach from its current list by passing null). Handles reparenting and position reflow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        node_id: {
+          type: 'string',
+          description: 'The node ID to move',
+        },
+        target_list_id: {
+          type: ['string', 'null'],
+          description: 'Target list ID to move into, or null to detach from current list',
+        },
+      },
+      required: ['node_id', 'target_list_id'],
     },
   },
 ];
@@ -1201,14 +1248,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           return Math.max(max, c.order ?? 0);
         }, -1);
 
+        const order = maxOrder + 1;
+
         const newItem = await db.createNode({
           id: uuidv4(),
           type: 'stickyNote',
           content: JSON.stringify({
             text: itemText,
             color,
-            order: maxOrder + 1,
+            order,
             status: itemStatus,
+            position: listSlotPosition(order),
+            width: LIST_ITEM_WIDTH,
           }),
           context: '',
           parent_id: list_id,
@@ -1218,6 +1269,57 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return {
           content: [{ type: 'text', text: JSON.stringify(newItem, null, 2) }],
         };
+      }
+
+      case 'move_to_list': {
+        const err = validateArgs(a, ['node_id', 'target_list_id']);
+        if (err) return err;
+        const { node_id: moveNodeId, target_list_id: targetListId } = a as any;
+
+        const moveNode = db.getNode(moveNodeId);
+        if (!moveNode) {
+          return { content: [{ type: 'text', text: `Node not found: ${moveNodeId}` }], isError: true };
+        }
+
+        const oldParentId = moveNode.parent_id;
+
+        if (targetListId) {
+          // Move INTO a list
+          const targetList = db.getNode(targetListId);
+          if (!targetList || targetList.type !== 'list') {
+            return { content: [{ type: 'text', text: `Target list not found: ${targetListId}` }], isError: true };
+          }
+
+          const targetChildren = db.getChildNodes(targetListId);
+          const nextOrder = targetChildren.length;
+
+          // Update content with new order and position
+          const nodeContent = JSON.parse(moveNode.content);
+          nodeContent.order = nextOrder;
+          nodeContent.position = listSlotPosition(nextOrder);
+
+          const updated = await db.updateNode(moveNodeId, {
+            parent_id: targetListId,
+            content: JSON.stringify(nodeContent),
+          });
+
+          // Reflow old parent's children if node was in a different list
+          if (oldParentId && oldParentId !== targetListId) {
+            await reflowListChildren(oldParentId);
+          }
+
+          return { content: [{ type: 'text', text: JSON.stringify(updated, null, 2) }] };
+        } else {
+          // Detach from list (set parent_id to null)
+          const updated = await db.updateNode(moveNodeId, { parent_id: null });
+
+          // Reflow old parent's remaining children to fill the gap
+          if (oldParentId) {
+            await reflowListChildren(oldParentId);
+          }
+
+          return { content: [{ type: 'text', text: JSON.stringify(updated, null, 2) }] };
+        }
       }
 
       default:

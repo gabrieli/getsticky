@@ -246,6 +246,17 @@ function AppContent() {
           type: n.type === 'containerNode' ? 'container' : n.type === 'listNode' ? 'list' : n.type,
         }));
         const newNode = dbNodeToFlowNode(dbNode, [...existingAsDb, dbNode]);
+
+        // If node is a list child, compute correct slot position
+        if (newNode.parentId) {
+          const parentNode = prev.find(n => n.id === newNode.parentId);
+          if (parentNode?.type === 'listNode') {
+            const existingChildren = prev.filter(n => n.parentId === newNode.parentId);
+            const layout = computeListLayout(existingChildren.length + 1);
+            newNode.position = layout.positions[existingChildren.length] || layout.nextSlot;
+          }
+        }
+
         return sortNodesParentFirst([...prev, newNode]);
       });
     });
@@ -287,6 +298,16 @@ function AppContent() {
                   if (parent.type === 'containerNode') {
                     patched.extent = 'parent';
                     patched.expandParent = true;
+                  }
+                  // Use server-computed position for list children, fall back to client-side computation
+                  if (parent.type === 'listNode') {
+                    if (updatedContent.position) {
+                      patched.position = updatedContent.position;
+                    } else {
+                      const siblings = prev.filter((n) => n.parentId === echoParent && n.id !== dbNode.id);
+                      const layout = computeListLayout(siblings.length + 1);
+                      patched.position = layout.positions[siblings.length] || layout.nextSlot;
+                    }
                   }
                 }
               } else {
