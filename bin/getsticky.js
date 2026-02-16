@@ -14,6 +14,27 @@ function getArg(name, defaultValue) {
   return args[index + 1] || defaultValue;
 }
 
+// Handle `getsticky mcp` subcommand — start the MCP server (stdio)
+if (args[0] === 'mcp') {
+  const mcpPath = path.resolve(__dirname, '..', 'server', 'dist-mcp', 'mcp', 'server.js');
+  if (!fs.existsSync(mcpPath)) {
+    console.error('Error: MCP server not found at', mcpPath);
+    console.error('If running from source, run: npm run build:mcp');
+    process.exit(1);
+  }
+  // Forward remaining args and env, then exec the MCP server
+  const { execFileSync } = require('child_process');
+  try {
+    execFileSync(process.execPath, [mcpPath, ...args.slice(1)], {
+      stdio: 'inherit',
+      env: { ...process.env },
+    });
+  } catch (e) {
+    process.exit(e.status || 1);
+  }
+  process.exit(0);
+}
+
 // Handle `getsticky init [name]` subcommand
 if (args[0] === 'init') {
   const projectName = args[1] || path.basename(process.cwd()).toLowerCase().replace(/[^a-z0-9-]/g, '-');
@@ -37,7 +58,8 @@ if (args.includes('--help') || args.includes('-h')) {
 
   Usage:
     getsticky [options]
-    getsticky init [name]    Initialize .getsticky.json for project detection
+    getsticky mcp             Start the MCP server (stdio transport)
+    getsticky init [name]     Initialize .getsticky.json for project detection
 
   Options:
     --port <number>   Port to run on (default: 2528)
@@ -45,11 +67,14 @@ if (args.includes('--help') || args.includes('-h')) {
     --help, -h        Show this help message
 
   MCP Server:
-    Configure in .mcp.json:
+    claude mcp add getsticky -- npx getsticky mcp
+
+    Or configure in .mcp.json:
     {
       "mcpServers": {
         "getsticky": {
-          "command": "getsticky-mcp",
+          "command": "npx",
+          "args": ["getsticky", "mcp"],
           "env": {
             "DB_PATH": "./getsticky-data",
             "WS_SERVER_URL": "http://localhost:2528"

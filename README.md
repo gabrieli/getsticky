@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./sticky-logo.png" alt="GetSticky logo" width="120" />
+  <img src="https://raw.githubusercontent.com/techfulness/getsticky/main/sticky-logo.png" alt="GetSticky logo" width="160" />
 </p>
 
 <h1 align="center">GetSticky</h1>
@@ -44,13 +44,18 @@ Then open **http://localhost:2528** in your browser.
 
 ### Connect Claude Code
 
-Add the MCP server to your project's `.mcp.json`:
+```bash
+claude mcp add getsticky -- npx getsticky mcp
+```
+
+Or add manually to your project's `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "getsticky": {
-      "command": "getsticky-mcp",
+      "command": "npx",
+      "args": ["getsticky", "mcp"],
       "env": {
         "DB_PATH": "./getsticky-data",
         "WS_SERVER_URL": "http://localhost:2528"
