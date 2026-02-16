@@ -22,12 +22,20 @@ if (args[0] === 'mcp') {
     console.error('If running from source, run: npm run build:mcp');
     process.exit(1);
   }
+  // Set defaults matching the published server (port 2528, ~/.getsticky/data)
+  const mcpEnv = { ...process.env };
+  if (!mcpEnv.WS_SERVER_URL) {
+    mcpEnv.WS_SERVER_URL = `http://localhost:${getArg('port', '2528')}`;
+  }
+  if (!mcpEnv.DB_PATH) {
+    mcpEnv.DB_PATH = path.join(require('os').homedir(), '.getsticky', 'data');
+  }
   // Forward remaining args and env, then exec the MCP server
   const { execFileSync } = require('child_process');
   try {
     execFileSync(process.execPath, [mcpPath, ...args.slice(1)], {
       stdio: 'inherit',
-      env: { ...process.env },
+      env: mcpEnv,
     });
   } catch (e) {
     process.exit(e.status || 1);

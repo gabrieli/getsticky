@@ -17,7 +17,7 @@
   "scripts": {
     "build:server": "cd server && npm run build",
     "build:mcp": "cd server && npm run build:mcp && echo '{\"type\":\"module\"}' > dist-mcp/package.json",
-    "build:app": "cd getsticky-app && npx vite build && cp -r dist ../app",
+    "build:app": "rm -rf app && cd getsticky-app && npx vite build && cp -r dist ../app",
     "build": "npm run build:server && npm run build:mcp && npm run build:app",
     "prepublishOnly": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
