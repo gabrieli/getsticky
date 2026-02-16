@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -21,19 +21,21 @@ import {
 import '@xyflow/react/dist/style.css';
 import ExampleNode from './nodes/ExampleNode';
 import RichTextNode from './nodes/RichTextNode';
-import DiagramNode from './nodes/DiagramNode';
 import DiagramBoxNode from './nodes/DiagramBoxNode';
 import ContainerNode from './nodes/ContainerNode';
 import StickyNoteNode from './nodes/StickyNoteNode';
 import ListNode from './nodes/ListNode';
 import { computeListLayout, LIST_WIDTH } from './nodes/ListNode';
 import NodeErrorBoundary from './components/NodeErrorBoundary';
+import DiagramCommentPopup from './components/DiagramCommentPopup';
+import DiagramChainComments from './components/DiagramChainComments';
 import { getAPI } from './lib/api';
 import { APIProvider } from './contexts/APIContext';
 import { getApiBaseUrl } from './lib/websocket';
 import EditableEdge from './edges/EditableEdge';
 import CanvasToolbar, { type ToolItem } from './components/CanvasToolbar';
 import DeleteBoardModal from './components/DeleteBoardModal';
+import type { CommentThread } from './types/comments';
 import './App.css';
 
 // ---------------------------------------------------------------------------
@@ -85,7 +87,6 @@ function withErrorBoundary<P extends { id: string }>(
 const nodeTypes: NodeTypes = {
   exampleNode: withErrorBoundary(ExampleNode),
   richTextNode: withErrorBoundary(RichTextNode),
-  diagramNode: withErrorBoundary(DiagramNode),
   diagramBox: withErrorBoundary(DiagramBoxNode),
   containerNode: withErrorBoundary(ContainerNode as any),
   stickyNoteNode: withErrorBoundary(StickyNoteNode),
@@ -98,7 +99,6 @@ const edgeTypes: EdgeTypes = {
 
 const nodeTypeMap: Record<string, string> = {
   richtext: 'richTextNode',
-  diagram: 'diagramNode',
   diagramBox: 'diagramBox',
   container: 'containerNode',
   stickyNote: 'stickyNoteNode',
@@ -148,6 +148,45 @@ function computeRichTextWidth(content: any): number {
   // At 14px sans-serif, avg char width ~7.7px, plus 40px padding (20px each side)
   const idealWidth = longestLine * 7.7 + 40;
   return Math.max(600, Math.min(1800, Math.round(idealWidth)));
+}
+
+/** Compute connected components of diagramBox nodes via edges (union-find). */
+function computeDiagramChains(nodes: Node[], edges: Edge[]): string[][] {
+  const boxIds = nodes.filter((n) => n.type === 'diagramBox').map((n) => n.id);
+  if (boxIds.length === 0) return [];
+
+  const parent: Record<string, string> = {};
+  for (const id of boxIds) parent[id] = id;
+
+  function find(x: string): string {
+    while (parent[x] !== x) {
+      parent[x] = parent[parent[x]];
+      x = parent[x];
+    }
+    return x;
+  }
+
+  function union(a: string, b: string) {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[ra] = rb;
+  }
+
+  const boxSet = new Set(boxIds);
+  for (const edge of edges) {
+    if (boxSet.has(edge.source) && boxSet.has(edge.target)) {
+      union(edge.source, edge.target);
+    }
+  }
+
+  const groups: Record<string, string[]> = {};
+  for (const id of boxIds) {
+    const root = find(id);
+    if (!groups[root]) groups[root] = [];
+    groups[root].push(id);
+  }
+
+  return Object.values(groups);
 }
 
 // Convert a DB node to a React Flow node, applying container parent-child relationships
@@ -836,6 +875,110 @@ function AppContent({ breadcrumb, onDeleteBoard }: {
     setSelectedNodes(selected);
   }, []);
 
+  // Diagram comment popup: derive selected diagram boxes
+  const selectedDiagramBoxes = selectedNodes.filter(
+    (n) => n.type === 'diagramBox',
+  );
+
+  // Track anchor rect for the comment popup via rAF so it stays accurate during zoom/pan
+  const [diagramPopupAnchor, setDiagramPopupAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
+  const popupRafRef = useRef<number>();
+
+  useEffect(() => {
+    if (selectedDiagramBoxes.length === 0) {
+      setDiagramPopupAnchor(null);
+      return;
+    }
+
+    const update = () => {
+      let minLeft = Infinity, minTop = Infinity, maxRight = -Infinity;
+      for (const box of selectedDiagramBoxes) {
+        const el = document.querySelector(`[data-id="${box.id}"]`);
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        minLeft = Math.min(minLeft, rect.left);
+        minTop = Math.min(minTop, rect.top);
+        maxRight = Math.max(maxRight, rect.right);
+      }
+      if (minLeft === Infinity) {
+        setDiagramPopupAnchor(null);
+      } else {
+        setDiagramPopupAnchor({ top: minTop, left: minLeft, width: maxRight - minLeft });
+      }
+      popupRafRef.current = requestAnimationFrame(update);
+    };
+    update();
+
+    return () => {
+      if (popupRafRef.current) cancelAnimationFrame(popupRafRef.current);
+    };
+  }, [selectedDiagramBoxes]);
+
+  // Compute diagram chains (connected components) that have comments
+  const diagramChainsWithComments = useMemo(() => {
+    return computeDiagramChains(nodes, edges).filter((chain) =>
+      chain.some((boxId) => {
+        const node = nodes.find((n) => n.id === boxId);
+        const comments: CommentThread[] = (node?.data as any)?.comments || [];
+        return comments.length > 0;
+      }),
+    );
+  }, [nodes, edges]);
+
+  // Handle adding a diagram comment — store on the first selected box
+  const handleDiagramComment = useCallback((text: string) => {
+    if (selectedDiagramBoxes.length === 0) return;
+
+    const primaryBox = selectedDiagramBoxes[0];
+    const boxIds = selectedDiagramBoxes.map((n) => n.id);
+    const boxLabels = selectedDiagramBoxes.map((n) => (n.data as any).label || n.id);
+
+    const threadId = `thread-${Date.now()}`;
+    const newThread: CommentThread = {
+      id: threadId,
+      selectedText: boxLabels.join(', '),
+      from: 0,
+      to: 0,
+      boxIds,
+      messages: [
+        {
+          id: `msg-${Date.now()}`,
+          author: 'user',
+          text,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      status: 'open',
+      createdAt: new Date().toISOString(),
+    };
+
+    const existingComments: CommentThread[] = (primaryBox.data as any).comments || [];
+    const updatedComments = [...existingComments, newThread];
+
+    // Update the primary box with the new comment
+    apiRef.current.updateNode({
+      id: primaryBox.id,
+      data: { comments: updatedComments },
+    });
+
+    // Update local state
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === primaryBox.id
+          ? { ...n, data: { ...n.data, comments: updatedComments } }
+          : n,
+      ),
+    );
+
+    // Trigger Claude response
+    apiRef.current.askClaudeInComment(
+      primaryBox.id,
+      threadId,
+      newThread.selectedText,
+      newThread.messages.map((m) => ({ author: m.author, text: m.text })),
+    );
+  }, [selectedDiagramBoxes]);
+
   // Debounced viewport persistence
   const onViewportChange = useCallback((viewport: { x: number; y: number; zoom: number }) => {
     if (skipViewportSaveRef.current) {
@@ -1007,8 +1150,6 @@ function AppContent({ breadcrumb, onDeleteBoard }: {
             switch (node.type) {
               case 'richTextNode':
                 return '#8b5cf6';
-              case 'diagramNode':
-                return '#22d3ee';
               case 'diagramBox':
                 return '#22d3ee';
               case 'containerNode':
@@ -1026,6 +1167,27 @@ function AppContent({ breadcrumb, onDeleteBoard }: {
           }}
         />
       </ReactFlow>
+
+      {/* Diagram comment popup for selected diagram boxes */}
+      {selectedDiagramBoxes.length > 0 && diagramPopupAnchor && (
+        <DiagramCommentPopup
+          boxIds={selectedDiagramBoxes.map((n) => n.id)}
+          boxLabels={selectedDiagramBoxes.map((n) => (n.data as any).label || n.id)}
+          anchorRect={diagramPopupAnchor}
+          onAddComment={handleDiagramComment}
+          onClose={() => setSelectedNodes([])}
+        />
+      )}
+
+      {/* Comment sidebars for diagram chains with comments */}
+      {diagramChainsWithComments.map((chain) => (
+        <DiagramChainComments
+          key={chain.join(',')}
+          chainBoxIds={chain}
+          nodes={nodes}
+          agentName={agentName}
+        />
+      ))}
     </div>
   );
 }

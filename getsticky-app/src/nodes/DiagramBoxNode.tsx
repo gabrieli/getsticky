@@ -1,7 +1,8 @@
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { memo, useCallback, useRef, useEffect } from 'react';
+import { memo, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useAPI } from '../contexts/APIContext';
 import { useGrabToDrag } from '../lib/gestures';
+import type { CommentThread } from '../types/comments';
 
 export type DiagramBoxCategory = 'frontend' | 'server' | 'database' | 'external';
 
@@ -9,6 +10,7 @@ export type DiagramBoxData = {
   label: string;
   subtitle?: string;
   category?: DiagramBoxCategory;
+  comments?: CommentThread[];
 };
 
 export type DiagramBoxNode = Node<DiagramBoxData>;
@@ -30,14 +32,12 @@ function DiagramBoxNodeComponent({ id, data, selected }: NodeProps) {
   const initializedRef = useRef(false);
 
   const handleSelectFocus = useCallback((x: number, y: number) => {
-    // Try to focus the element under the click point
     const el = document.elementFromPoint(x, y);
     if (el === subtitleRef.current) {
       subtitleRef.current?.focus();
     } else {
       labelRef.current?.focus();
     }
-    // Place caret at click position
     const range = document.caretRangeFromPoint(x, y);
     if (range) {
       const sel = window.getSelection();
@@ -50,7 +50,12 @@ function DiagramBoxNodeComponent({ id, data, selected }: NodeProps) {
 
   const colors = categoryColors[(data.category as DiagramBoxCategory) || 'server'] || defaultColors;
 
-  // Set initial text on mount
+  // Check if this box has open comment threads
+  const hasOpenThread = useMemo(() => {
+    const comments: CommentThread[] = (data as any).comments || [];
+    return comments.some((t) => t.status === 'open');
+  }, [data]);
+
   useEffect(() => {
     if (!initializedRef.current) {
       if (labelRef.current) {
@@ -63,7 +68,6 @@ function DiagramBoxNodeComponent({ id, data, selected }: NodeProps) {
     }
   }, []);
 
-  // Sync from external data changes (e.g. MCP updates)
   useEffect(() => {
     if (!initializedRef.current) return;
     if (labelRef.current && document.activeElement !== labelRef.current) {
@@ -105,6 +109,7 @@ function DiagramBoxNodeComponent({ id, data, selected }: NodeProps) {
         maxWidth: '220px',
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         cursor: selected ? 'text' : 'grab',
+        position: 'relative',
       }}
     >
       <Handle
@@ -112,6 +117,22 @@ function DiagramBoxNodeComponent({ id, data, selected }: NodeProps) {
         position={Position.Top}
         style={{ background: colors.border, width: '6px', height: '6px', border: 'none' }}
       />
+
+      {/* Comment indicator dot */}
+      {hasOpenThread && (
+        <div
+          style={{
+            position: 'absolute',
+            top: -3,
+            right: -3,
+            width: 8,
+            height: 8,
+            borderRadius: '50%',
+            background: '#facc15',
+            boxShadow: '0 0 4px rgba(250, 204, 21, 0.5)',
+          }}
+        />
+      )}
 
       <div
         ref={labelRef}

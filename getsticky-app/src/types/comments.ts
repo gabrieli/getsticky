@@ -18,4 +18,5 @@ export interface CommentThread {
   messages: CommentMessage[];
   status: 'open' | 'resolved';
   createdAt: string;
+  boxIds?: string[];  // diagram box IDs this thread references
 }

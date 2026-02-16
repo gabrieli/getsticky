@@ -297,7 +297,7 @@ const tools: Tool[] = [
       properties: {
         type: {
           type: 'string',
-          enum: ['diagram', 'diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
+          enum: ['diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
           description: 'Type of node to create',
         },
         content: {
@@ -408,7 +408,7 @@ const tools: Tool[] = [
         },
         type: {
           type: 'string',
-          enum: ['diagram', 'diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
+          enum: ['diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
           description: 'Type of the new branch node',
         },
         content: {
@@ -510,7 +510,7 @@ const tools: Tool[] = [
       properties: {
         type: {
           type: 'string',
-          enum: ['diagram', 'diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
+          enum: ['diagramBox', 'container', 'richtext', 'stickyNote', 'list'],
           description: 'Filter by node type (optional)',
         },
         board_id: {

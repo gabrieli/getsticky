@@ -37,13 +37,6 @@ const tools: ToolItem[] = [
     defaultData: { label: 'New node', category: 'server' },
   },
   {
-    id: 'diagram',
-    label: 'Diagram Card',
-    icon: '\u2B1A',
-    nodeType: 'diagram',
-    defaultData: { title: 'Diagram', description: '' },
-  },
-{
     id: 'list',
     label: 'List',
     icon: '\u2630',
