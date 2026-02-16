@@ -13,7 +13,7 @@
     "test:integration": "tsx src/test-integration.ts"
   },
   "keywords": [],
-  "author": "",
+  "author": "techfulness/gabrieli",
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {

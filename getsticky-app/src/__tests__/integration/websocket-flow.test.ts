@@ -11,7 +11,7 @@ import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } fr
  * 5. Verify edge creation
  *
  * REQUIREMENTS:
- * - Backend server running on ws://localhost:8080
+ * - Backend server running on ws://localhost:2529
  * - ANTHROPIC_API_KEY configured in backend
  * - This is an integration test, not a unit test
  *
@@ -19,7 +19,7 @@ import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } fr
  * npm test -- src/__tests__/integration/websocket-flow.test.ts
  */
 
-const WS_URL = 'ws://localhost:8080';
+const WS_URL = 'ws://localhost:2529';
 const CONNECTION_TIMEOUT = 5000;
 const RESPONSE_TIMEOUT = 30000; // Claude responses can take time
 

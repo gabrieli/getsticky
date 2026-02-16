@@ -1566,7 +1566,7 @@ async function main() {
   // Wire up cross-process notifications: DB mutations → HTTP POST → WS server → frontends
   const notifier = new HttpNotificationClient(process.env.WS_SERVER_URL);
   db.on('mutation', (payload) => notifier.publish(payload));
-  console.error(`Notifications targeting ${process.env.WS_SERVER_URL || 'http://localhost:8080'}`);
+  console.error(`Notifications targeting ${process.env.WS_SERVER_URL || 'http://localhost:2529'}`);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

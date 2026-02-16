@@ -13,7 +13,7 @@ import dotenv from 'dotenv';
 // Load environment variables
 dotenv.config();
 
-const WS_PORT = parseInt(process.env.WS_PORT || '8080', 10);
+const WS_PORT = parseInt(process.env.WS_PORT || '2529', 10);
 const DB_PATH = process.env.DB_PATH || path.join(homedir(), '.getsticky', 'data');
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const STATIC_DIR = process.env.GETSTICKY_STATIC_DIR || undefined;

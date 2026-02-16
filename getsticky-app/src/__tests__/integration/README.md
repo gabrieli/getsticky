@@ -8,7 +8,7 @@ Integration tests require:
 - ✅ Backend server running (`cd server && npm run dev`)
 - ✅ ANTHROPIC_API_KEY configured in backend environment
 - ✅ Network connection for Claude API calls
-- ✅ WebSocket connection to ws://localhost:8080
+- ✅ WebSocket connection to ws://localhost:2529
 
 ## Running Integration Tests
 
@@ -58,7 +58,7 @@ Tests the complete UI flow (coming soon):
    ```
 
 2. **Verify Backend Running**
-   - Check terminal shows "WebSocket server listening on ws://localhost:8080"
+   - Check terminal shows "WebSocket server listening on ws://localhost:2529"
    - Check ANTHROPIC_API_KEY is set
 
 3. **Run Integration Tests**
@@ -80,7 +80,7 @@ Integration tests follow this pattern:
 describe('Feature Integration', () => {
   test('should complete full flow', async () => {
     // 1. Setup - Connect to real services
-    const ws = new WebSocket('ws://localhost:8080');
+    const ws = new WebSocket('ws://localhost:2529');
     await waitForConnection(ws);
 
     // 2. Act - Perform real operations
@@ -100,7 +100,7 @@ describe('Feature Integration', () => {
 
 ### Test times out
 - **Check:** Is backend server running?
-- **Check:** Is WebSocket port 8080 open?
+- **Check:** Is WebSocket port 2529 open?
 - **Check:** Any firewall blocking localhost connections?
 
 ### Test fails with API error
@@ -110,8 +110,8 @@ describe('Feature Integration', () => {
 
 ### Test fails with connection error
 - **Check:** Backend server logs for errors
-- **Check:** WebSocket URL is correct (ws://localhost:8080)
-- **Check:** No other service using port 8080
+- **Check:** WebSocket URL is correct (ws://localhost:2529)
+- **Check:** No other service using port 2529
 
 ### Response format unexpected
 - **Check:** Backend code matches expected message format

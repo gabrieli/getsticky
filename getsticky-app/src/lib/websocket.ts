@@ -238,7 +238,7 @@ function getDefaultWsUrl(): string {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${protocol}//${window.location.host}`;
   }
-  return 'ws://localhost:8080';
+  return 'ws://localhost:2529';
 }
 
 /**
@@ -285,5 +285,5 @@ export function getApiBaseUrl(): string {
   if (typeof window !== 'undefined') {
     return window.location.origin;
   }
-  return 'http://localhost:8080';
+  return 'http://localhost:2529';
 }

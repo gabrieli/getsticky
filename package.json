@@ -35,7 +35,7 @@
     "react-flow",
     "sticky-notes"
   ],
-  "author": "",
+  "author": "techfulness/gabrieli",
   "license": "MIT",
   "type": "commonjs",
   "engines": {

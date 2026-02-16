@@ -15,7 +15,7 @@ export class HttpNotificationClient implements NotificationChannel {
   private baseUrl: string;
 
   constructor(baseUrl?: string) {
-    this.baseUrl = (baseUrl || 'http://localhost:8080').replace(/\/$/, '');
+    this.baseUrl = (baseUrl || 'http://localhost:2529').replace(/\/$/, '');
   }
 
   async publish(payload: NotificationPayload): Promise<void> {

@@ -23,7 +23,7 @@ describe('Integration: Full Question-Answer Flow', () => {
 
   beforeEach(() => {
     // Mock WebSocket server
-    wsServer = new WS('ws://localhost:8080');
+    wsServer = new WS('ws://localhost:2529');
   });
 
   afterEach(() => {

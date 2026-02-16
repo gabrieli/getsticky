@@ -1,6 +1,6 @@
 import WebSocket from 'ws';
 
-const WS_URL = 'ws://localhost:8080';
+const WS_URL = 'ws://localhost:2529';
 
 /**
  * Create a board via WebSocket.
