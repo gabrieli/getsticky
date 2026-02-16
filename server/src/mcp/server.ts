@@ -76,14 +76,45 @@ function detectProject(): string {
   return basename || 'default';
 }
 
-/** Resolve board_id from args, using project context as default */
-function resolveBoardId(args: Record<string, unknown>): string {
-  if (args.board_id && typeof args.board_id === 'string') return args.board_id;
-  if (args.project_id && args.board_slug) {
-    const board = db.getBoardBySlug(args.project_id as string, args.board_slug as string);
-    if (board) return board.id;
+/**
+ * Try to resolve a board_id string as either a literal board ID or a slug.
+ * Returns the resolved board ID, or undefined if the input was empty.
+ */
+function tryResolveBoardIdOrSlug(value: string | undefined, projectId?: string): string | undefined {
+  if (!value) return undefined;
+
+  // 1. Exact board ID match
+  const byId = db.getBoard(value);
+  if (byId) return byId.id;
+
+  // 2. Slug match within an explicit project_id
+  if (projectId) {
+    const bySlug = db.getBoardBySlug(projectId, value);
+    if (bySlug) return bySlug.id;
   }
-  return defaultBoardId;
+
+  // 3. Slug match within the auto-detected project
+  const bySlug = db.getBoardBySlug(detectedProjectId, value);
+  if (bySlug) return bySlug.id;
+
+  // Not found — return the original value as-is (caller decides fallback)
+  return value;
+}
+
+/** Resolve board_id from args for tools that CREATE content (needs a default).
+ *  Accepts either a board ID or a board slug.
+ */
+function resolveBoardId(args: Record<string, unknown>): string {
+  const value = typeof args.board_id === 'string' ? args.board_id : undefined;
+  const projectId = typeof args.project_id === 'string' ? args.project_id : undefined;
+  return tryResolveBoardIdOrSlug(value, projectId) || defaultBoardId;
+}
+
+/** Resolve board_id from args for tools that FILTER/QUERY (undefined = all boards). */
+function resolveOptionalBoardId(args: Record<string, unknown>): string | undefined {
+  const value = typeof args.board_id === 'string' ? args.board_id : undefined;
+  const projectId = typeof args.project_id === 'string' ? args.project_id : undefined;
+  return tryResolveBoardIdOrSlug(value, projectId);
 }
 
 // List layout constants — must match frontend ListNode.tsx
@@ -271,7 +302,7 @@ const tools: Tool[] = [
         },
         content: {
           type: 'object',
-          description: 'Node content (varies by type)',
+          description: 'Node content (varies by type). For diagramBox: { label: string, subtitle?: string, category?: "frontend"|"server"|"database"|"external" }. For stickyNote: { text: string, color?: string }. For richtext: { content: string }. For diagram: { title?: string }. For list: { title?: string }.',
         },
         context: {
           type: 'string',
@@ -283,7 +314,7 @@ const tools: Tool[] = [
         },
         board_id: {
           type: 'string',
-          description: 'Board ID (defaults to "default")',
+          description: 'Board ID or slug (defaults to project default board)',
         },
       },
       required: ['type', 'content'],
@@ -386,7 +417,7 @@ const tools: Tool[] = [
         },
         board_id: {
           type: 'string',
-          description: 'Board ID (defaults to "default")',
+          description: 'Board ID or slug (defaults to project default board)',
         },
       },
       required: ['parent_id', 'type', 'content'],
@@ -451,7 +482,7 @@ const tools: Tool[] = [
         },
         board_id: {
           type: 'string',
-          description: 'Board ID to scope search (defaults to all boards)',
+          description: 'Board ID or slug to scope search (defaults to all boards)',
         },
       },
       required: ['query'],
@@ -484,7 +515,7 @@ const tools: Tool[] = [
         },
         board_id: {
           type: 'string',
-          description: 'Board ID to filter by (defaults to all boards)',
+          description: 'Board ID or slug to filter by (defaults to all boards)',
         },
       },
     },
@@ -497,7 +528,7 @@ const tools: Tool[] = [
       properties: {
         board_id: {
           type: 'string',
-          description: 'Board ID to export (defaults to all boards)',
+          description: 'Board ID or slug to export (defaults to all boards)',
         },
       },
     },
@@ -510,7 +541,7 @@ const tools: Tool[] = [
       properties: {
         board_id: {
           type: 'string',
-          description: 'Board ID to get stats for (defaults to all boards)',
+          description: 'Board ID or slug to get stats for (defaults to all boards)',
         },
       },
     },
@@ -523,7 +554,7 @@ const tools: Tool[] = [
       properties: {
         board_id: {
           type: 'string',
-          description: 'Board ID to get layout for (defaults to all boards)',
+          description: 'Board ID or slug to get layout for (defaults to all boards)',
         },
       },
     },
@@ -570,7 +601,7 @@ const tools: Tool[] = [
         },
         board_id: {
           type: 'string',
-          description: 'Board ID (defaults to "default")',
+          description: 'Board ID or slug (defaults to project default board)',
         },
       },
       required: ['title', 'content'],
@@ -619,7 +650,7 @@ const tools: Tool[] = [
         },
         board_id: {
           type: 'string',
-          description: 'Board ID to arrange (defaults to all boards)',
+          description: 'Board ID or slug to arrange (defaults to all boards)',
         },
       },
     },
@@ -739,7 +770,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const err = validateArgs(a, ['name']);
         if (err) return err;
         const { name: boardName, id: boardId } = a as any;
-        const board = db.createBoard(boardId || uuidv4(), boardName);
+        const slugFromName = (boardName as string).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        const board = db.createBoard(boardId || slugFromName || uuidv4(), boardName, 'default', slugFromName || undefined);
         return {
           content: [{ type: 'text', text: JSON.stringify(board, null, 2) }],
         };
@@ -990,8 +1022,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case 'search_context': {
         const err = validateArgs(a, ['query']);
         if (err) return err;
-        const { query, limit = 5, board_id } = a as any;
-        const results = await db.searchContext(query, limit, board_id);
+        const { query, limit = 5 } = a as any;
+        const results = await db.searchContext(query, limit, resolveOptionalBoardId(a));
 
         return {
           content: [
@@ -1020,8 +1052,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_all_nodes': {
-        const { type, board_id } = a as any;
-        let nodes = db.getAllNodes(board_id);
+        const { type } = a as any;
+        let nodes = db.getAllNodes(resolveOptionalBoardId(a));
 
         if (type) {
           nodes = nodes.filter((n) => n.type === type);
@@ -1038,8 +1070,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'export_graph': {
-        const { board_id } = a as any;
-        const graph = db.exportGraph(board_id);
+        const graph = db.exportGraph(resolveOptionalBoardId(a));
 
         return {
           content: [
@@ -1052,8 +1083,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       case 'get_stats': {
-        const { board_id } = a as any;
-        const stats = await db.getStats(board_id);
+        const stats = await db.getStats(resolveOptionalBoardId(a));
 
         return {
           content: [
@@ -1067,7 +1097,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case 'get_canvas_layout': {
         console.error('[MCP] get_canvas_layout');
-        const { board_id: layoutBoardId } = a as any;
+        const layoutBoardId = resolveOptionalBoardId(a);
         const allNodes = db.getAllNodes(layoutBoardId);
         const allEdges = db.getAllEdges(layoutBoardId);
 
@@ -1264,8 +1294,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           spacing_y = 100,
           node_width = 300,
           node_height = 180,
-          board_id: arrangeBoardId,
         } = a as any;
+        const arrangeBoardId = resolveOptionalBoardId(a);
 
         const allNodesForLayout = db.getAllNodes(arrangeBoardId);
         const allEdgesForLayout = db.getAllEdges(arrangeBoardId);

@@ -20,7 +20,7 @@ import type { NotificationPayload } from '../notifications/types';
 
 const VALID_WS_TYPES = new Set([
   'create_node', 'update_node', 'delete_node',
-  'create_edge', 'delete_edge',
+  'create_edge', 'update_edge', 'delete_edge',
   'add_context', 'search_context',
   'ask_claude', 'comment_ask_claude',
   'get_settings', 'update_settings',
@@ -30,13 +30,13 @@ const VALID_WS_TYPES = new Set([
 ]);
 
 export interface WSMessage {
-  type: 'create_node' | 'update_node' | 'delete_node' | 'create_edge' | 'delete_edge' | 'add_context' | 'search_context' | 'ask_claude' | 'comment_ask_claude' | 'get_settings' | 'update_settings' | 'create_board' | 'delete_board' | 'list_boards' | 'list_projects' | 'create_project' | 'delete_project' | 'get_project_boards' | 'update_viewport';
+  type: 'create_node' | 'update_node' | 'delete_node' | 'create_edge' | 'update_edge' | 'delete_edge' | 'add_context' | 'search_context' | 'ask_claude' | 'comment_ask_claude' | 'get_settings' | 'update_settings' | 'create_board' | 'delete_board' | 'list_boards' | 'list_projects' | 'create_project' | 'delete_project' | 'get_project_boards' | 'update_viewport';
   data: any;
   id?: string;
 }
 
 export interface WSResponse {
-  type: 'success' | 'error' | 'node_created' | 'node_updated' | 'node_deleted' | 'edge_created' | 'edge_deleted' | 'context_added' | 'search_results' | 'claude_response' | 'claude_streaming' | 'comment_claude_response' | 'settings' | 'board_created' | 'board_deleted' | 'boards_list' | 'projects_list' | 'project_created' | 'project_deleted' | 'project_boards';
+  type: 'success' | 'error' | 'node_created' | 'node_updated' | 'node_deleted' | 'edge_created' | 'edge_updated' | 'edge_deleted' | 'context_added' | 'search_results' | 'claude_response' | 'claude_streaming' | 'comment_claude_response' | 'settings' | 'board_created' | 'board_deleted' | 'boards_list' | 'projects_list' | 'project_created' | 'project_deleted' | 'project_boards';
   data?: any;
   error?: string;
   requestId?: string;
@@ -147,7 +147,7 @@ export class GetStickyWSServer {
     const origin = req.headers.origin;
     if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     }
     if (req.method === 'OPTIONS') {
@@ -180,6 +180,29 @@ export class GetStickyWSServer {
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ boardId: board.id, projectId: projectSlug, boardSlug: board.slug }));
+      return;
+    }
+
+    // API: DELETE /api/boards/:id — delete a board
+    if (req.method === 'DELETE' && req.url?.startsWith('/api/boards/')) {
+      const boardId = decodeURIComponent(req.url.replace('/api/boards/', ''));
+      if (!boardId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Board ID required' }));
+        return;
+      }
+      this.db.deleteBoard(boardId).then((success) => {
+        if (success) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ deleted: true, id: boardId }));
+        } else {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `Board not found: ${boardId}` }));
+        }
+      }).catch((err) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      });
       return;
     }
 
@@ -322,7 +345,8 @@ export class GetStickyWSServer {
             this.sendError(ws, 'Board name is required', requestId);
             return;
           }
-          const board = this.db.createBoard(id || uuidv4(), name);
+          const slugFromName = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          const board = this.db.createBoard(id || slugFromName || uuidv4(), name, 'default', slugFromName || undefined);
           this.send(ws, {
             type: 'board_created',
             data: board,
@@ -514,6 +538,23 @@ export class GetStickyWSServer {
           this.broadcastToBoard({
             type: 'edge_created',
             data: edge,
+            requestId,
+          }, boardId);
+          break;
+        }
+
+        case 'update_edge': {
+          const { id, label } = message.data;
+          const updatedEdge = this.db.updateEdge(id, label ?? '');
+
+          if (!updatedEdge) {
+            this.sendError(ws, `Edge not found: ${id}`, requestId);
+            return;
+          }
+
+          this.broadcastToBoard({
+            type: 'edge_updated',
+            data: updatedEdge,
             requestId,
           }, boardId);
           break;

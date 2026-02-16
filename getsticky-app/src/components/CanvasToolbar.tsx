@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { type Node } from '@xyflow/react';
 import SettingsModal from './SettingsModal';
+import DeleteBoardModal from './DeleteBoardModal';
 import { STICKY_COLORS } from '../nodes/StickyNoteNode';
 
 export interface ToolItem {
@@ -60,6 +61,8 @@ interface CanvasToolbarProps {
   setActiveTool?: (tool: ToolItem | null) => void;
   selectedNodes?: Node[];
   onSaveSettings?: (settings: { agentName?: string; apiKey?: string }) => void;
+  boardName?: string;
+  onDeleteBoard?: () => void;
 }
 
 export default function CanvasToolbar({
@@ -69,11 +72,15 @@ export default function CanvasToolbar({
   setActiveTool,
   selectedNodes = [],
   onSaveSettings,
+  boardName,
+  onDeleteBoard,
 }: CanvasToolbarProps) {
   const api = useAPI();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [gearHovered, setGearHovered] = useState(false);
+  const [trashHovered, setTrashHovered] = useState(false);
   const [hoveredColor, setHoveredColor] = useState<string | null>(null);
 
   const handleToolClick = (tool: ToolItem) => {
@@ -342,6 +349,63 @@ export default function CanvasToolbar({
         )}
       </div>
 
+      {/* Delete board */}
+      {onDeleteBoard && (
+        <div style={{ position: 'relative' }}>
+          <button
+            onClick={() => setDeleteOpen(true)}
+            onMouseEnter={() => setTrashHovered(true)}
+            onMouseLeave={() => setTrashHovered(false)}
+            style={{
+              width: 36,
+              height: 36,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: trashHovered ? '#2d3748' : 'transparent',
+              border: 'none',
+              borderRadius: '7px',
+              color: trashHovered ? '#ef4444' : '#64748b',
+              fontSize: '16px',
+              cursor: 'pointer',
+              transition: 'background 0.15s, color 0.15s',
+            }}
+            title="Delete board"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <line x1="10" y1="11" x2="10" y2="17" />
+              <line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+          </button>
+
+          {trashHovered && (
+            <div
+              style={{
+                position: 'absolute',
+                left: '100%',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                marginLeft: 8,
+                whiteSpace: 'nowrap',
+                background: '#1e293b',
+                color: '#e2e8f0',
+                fontSize: '12px',
+                fontWeight: 500,
+                padding: '5px 10px',
+                borderRadius: '6px',
+                border: '1px solid #334155',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                pointerEvents: 'none',
+              }}
+            >
+              Delete board
+            </div>
+          )}
+        </div>
+      )}
+
       {settingsOpen && createPortal(
         <SettingsModal
           isOpen={settingsOpen}
@@ -352,6 +416,18 @@ export default function CanvasToolbar({
             onSaveSettings?.(settings);
             setSettingsOpen(false);
           }}
+        />,
+        document.body
+      )}
+
+      {deleteOpen && onDeleteBoard && createPortal(
+        <DeleteBoardModal
+          boardName={boardName || 'this board'}
+          onConfirm={() => {
+            onDeleteBoard();
+            setDeleteOpen(false);
+          }}
+          onClose={() => setDeleteOpen(false)}
         />,
         document.body
       )}

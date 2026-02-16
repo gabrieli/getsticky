@@ -10,6 +10,7 @@ import {
   useReactFlow,
   type Connection,
   type NodeTypes,
+  type EdgeTypes,
   type NodeChange,
   type EdgeChange,
   type Node,
@@ -30,7 +31,9 @@ import NodeErrorBoundary from './components/NodeErrorBoundary';
 import { getAPI } from './lib/api';
 import { APIProvider } from './contexts/APIContext';
 import { getApiBaseUrl } from './lib/websocket';
+import EditableEdge from './edges/EditableEdge';
 import CanvasToolbar, { type ToolItem } from './components/CanvasToolbar';
+import DeleteBoardModal from './components/DeleteBoardModal';
 import './App.css';
 
 // ---------------------------------------------------------------------------
@@ -87,6 +90,10 @@ const nodeTypes: NodeTypes = {
   containerNode: withErrorBoundary(ContainerNode as any),
   stickyNoteNode: withErrorBoundary(StickyNoteNode),
   listNode: withErrorBoundary(ListNode as any),
+};
+
+const edgeTypes: EdgeTypes = {
+  editable: EditableEdge,
 };
 
 const nodeTypeMap: Record<string, string> = {
@@ -221,7 +228,10 @@ const demoNodes: Node[] = [
 
 const demoEdges: Edge[] = [];
 
-function AppContent() {
+function AppContent({ breadcrumb, onDeleteBoard }: {
+  breadcrumb?: { projectSlug: string; boardSlug: string };
+  onDeleteBoard?: () => void;
+}) {
   const [nodes, setNodes] = useState<Node[]>(demoNodes);
   const [edges, setEdges] = useState<Edge[]>(demoEdges);
   const apiRef = useRef(getAPI());
@@ -399,7 +409,7 @@ function AppContent() {
         source: edgeData.source_id || edgeData.source,
         target: edgeData.target_id || edgeData.target,
         label: edgeData.label,
-        type: 'smoothstep',
+        type: 'editable',
       };
 
       setEdges((prev) => {
@@ -418,6 +428,15 @@ function AppContent() {
       setNodes((prev) => prev.filter((n) => n.id !== id));
       // Also remove edges connected to this node
       setEdges((prev) => prev.filter((e) => e.source !== id && e.target !== id));
+    });
+
+    // Handle edge_updated events
+    const unsubEdgeUpdated = api.on('edge_updated', (data: any) => {
+      const edgeData = data.data || data;
+      if (!edgeData.id) return;
+      setEdges((prev) =>
+        prev.map((e) => (e.id === edgeData.id ? { ...e, label: edgeData.label } : e))
+      );
     });
 
     // Handle edge_deleted events
@@ -448,7 +467,7 @@ function AppContent() {
             source: dbEdge.source_id,
             target: dbEdge.target_id,
             label: dbEdge.label,
-            type: 'smoothstep',
+            type: 'editable',
           }));
           setEdges(flowEdges);
         }
@@ -488,6 +507,7 @@ function AppContent() {
       unsubNodeUpdated();
       unsubNodeDeleted();
       unsubEdgeCreated();
+      unsubEdgeUpdated();
       unsubEdgeDeleted();
       unsubSuccess();
       unsubClaudeResponse();
@@ -888,7 +908,10 @@ function AppContent() {
   }, [selectedNodes]);
 
   return (
-    <div style={{ width: '100vw', height: '100vh', cursor: activeTool ? 'crosshair' : undefined }}>
+    <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden', cursor: activeTool ? 'crosshair' : undefined }}>
+      {/* Breadcrumb (when inside a project board) */}
+      {breadcrumb && <NavBreadcrumb projectSlug={breadcrumb.projectSlug} boardSlug={breadcrumb.boardSlug} />}
+
       {/* Top bar: Logo + Name + GitHub */}
       <div
         style={{
@@ -907,22 +930,22 @@ function AppContent() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto' }}>
           <img src="/sticky-logo-cropped.png" alt="getsticky" style={{ width: 32, height: 32 }} />
           <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0', letterSpacing: '-0.01em' }}>getsticky</span>
+        </div>
+
+        {/* GitHub + Connection dot — top right */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto' }}>
           <a
             href="https://github.com/techfulness/getsticky"
             target="_blank"
             rel="noopener noreferrer"
-            style={{ display: 'flex', alignItems: 'center', color: '#64748b', marginLeft: 4, transition: 'color 0.15s' }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = '#e2e8f0')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = '#64748b')}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, borderRadius: 6, background: '#ffffff', color: '#24292f', transition: 'opacity 0.15s' }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.8')}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/>
             </svg>
           </a>
-        </div>
-
-        {/* Connection dot — top right */}
-        <div style={{ marginLeft: 'auto', pointerEvents: 'auto' }}>
           <div
             title={isConnected ? 'Connected' : 'Disconnected'}
             style={{
@@ -946,6 +969,7 @@ function AppContent() {
         onSelectionChange={onSelectionChange}
         onViewportChange={onViewportChange}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         selectNodesOnDrag={false}
         selectionOnDrag={true}
         panOnDrag={[1, 2]}
@@ -958,7 +982,7 @@ function AppContent() {
         panOnScroll={true}
         panOnScrollMode={PanOnScrollMode.Free}
         defaultEdgeOptions={{
-          type: 'smoothstep',
+          type: 'editable',
           animated: false,
           style: { stroke: '#475569', strokeWidth: 1.5 },
         }}
@@ -975,6 +999,8 @@ function AppContent() {
             apiRef.current.updateSettings(settings);
             if (settings.agentName) setAgentName(settings.agentName);
           }}
+          boardName={breadcrumb?.boardSlug}
+          onDeleteBoard={onDeleteBoard}
         />
         <MiniMap
           nodeColor={(node) => {
@@ -1100,6 +1126,7 @@ function ProjectListPage() {
 function BoardListPage({ projectSlug }: { projectSlug: string }) {
   const [boards, setBoards] = useState<{ id: string; slug: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingBoard, setDeletingBoard] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     const apiUrl = getApiBaseUrl();
@@ -1115,6 +1142,18 @@ function BoardListPage({ projectSlug }: { projectSlug: string }) {
         setLoading(false);
       });
   }, [projectSlug]);
+
+  const handleDeleteBoard = (boardId: string) => {
+    const apiUrl = getApiBaseUrl();
+    fetch(`${apiUrl}/api/boards/${encodeURIComponent(boardId)}`, { method: 'DELETE' })
+      .then((res) => {
+        if (res.ok) {
+          setBoards((prev) => prev.filter((b) => b.id !== boardId));
+        }
+      })
+      .catch((err) => console.error('Failed to delete board:', err))
+      .finally(() => setDeletingBoard(null));
+  };
 
   if (loading) {
     return (
@@ -1146,7 +1185,7 @@ function BoardListPage({ projectSlug }: { projectSlug: string }) {
           {boards.map((board) => (
             <div
               key={board.id}
-              onClick={() => navigateTo(`/project/${projectSlug}/board/${board.slug}`)}
+              onClick={() => navigateTo(`/project/${projectSlug}/board/${board.slug || board.id}`)}
               style={{
                 background: '#1e293b',
                 border: '1px solid #334155',
@@ -1154,12 +1193,53 @@ function BoardListPage({ projectSlug }: { projectSlug: string }) {
                 padding: '20px 24px',
                 cursor: 'pointer',
                 transition: 'border-color 0.15s',
+                position: 'relative',
               }}
               onMouseEnter={(e) => (e.currentTarget.style.borderColor = '#6366f1')}
               onMouseLeave={(e) => (e.currentTarget.style.borderColor = '#334155')}
             >
               <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{board.name}</h2>
               <p style={{ fontSize: 12, color: '#64748b' }}>{board.slug}</p>
+
+              {/* Delete button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeletingBoard({ id: board.id, name: board.name });
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 12,
+                  right: 12,
+                  width: 28,
+                  height: 28,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'transparent',
+                  border: 'none',
+                  borderRadius: '6px',
+                  color: '#475569',
+                  cursor: 'pointer',
+                  transition: 'color 0.15s, background 0.15s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#ef4444';
+                  e.currentTarget.style.background = 'rgba(239, 68, 68, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#475569';
+                  e.currentTarget.style.background = 'transparent';
+                }}
+                title="Delete board"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+              </button>
             </div>
           ))}
         </div>
@@ -1170,6 +1250,14 @@ function BoardListPage({ projectSlug }: { projectSlug: string }) {
           </p>
         )}
       </div>
+
+      {deletingBoard && (
+        <DeleteBoardModal
+          boardName={deletingBoard.name}
+          onConfirm={() => handleDeleteBoard(deletingBoard.id)}
+          onClose={() => setDeletingBoard(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1253,11 +1341,32 @@ function BoardPage({ projectSlug, boardSlug }: { projectSlug: string; boardSlug:
     );
   }
 
+  const handleDeleteBoard = () => {
+    const apiUrl = getApiBaseUrl();
+    fetch(`${apiUrl}/api/boards/${encodeURIComponent(boardId!)}`, { method: 'DELETE' })
+      .then((res) => {
+        if (res.ok) {
+          navigateTo(`/project/${projectSlug}`);
+        } else {
+          res.json().then((data) => {
+            console.error('Failed to delete board:', data.error);
+            setError(data.error || 'Failed to delete board');
+          }).catch(() => setError('Failed to delete board'));
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to delete board:', err);
+        setError('Failed to connect to server');
+      });
+  };
+
   return (
     <APIProvider boardId={boardId}>
       <ReactFlowProvider>
-        <NavBreadcrumb projectSlug={projectSlug} boardSlug={boardSlug} />
-        <AppContent />
+        <AppContent
+          breadcrumb={{ projectSlug, boardSlug }}
+          onDeleteBoard={handleDeleteBoard}
+        />
       </ReactFlowProvider>
     </APIProvider>
   );

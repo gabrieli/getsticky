@@ -123,6 +123,13 @@ export class GetStickyAPI {
   }
 
   /**
+   * Update an edge label
+   */
+  updateEdge(edgeId: string, label: string): void {
+    this.ws.send('update_edge', { id: edgeId, label });
+  }
+
+  /**
    * Delete an edge
    */
   deleteEdge(edgeId: string): void {

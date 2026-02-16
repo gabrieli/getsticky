@@ -153,6 +153,16 @@ export class DatabaseManager extends EventEmitter {
     return this.sqlite.getAllEdges(boardId);
   }
 
+  updateEdge(id: string, label: string): Edge | null {
+    const updated = this.sqlite.updateEdge(id, label);
+    if (updated) {
+      const sourceNode = this.sqlite.getNode(updated.source_id);
+      const boardId = sourceNode?.board_id || 'default';
+      this.emitMutation('edge_updated', updated, boardId);
+    }
+    return updated;
+  }
+
   deleteEdge(id: string): boolean {
     // Look up edge and source node BEFORE deleting
     const edge = this.sqlite.getEdge(id);

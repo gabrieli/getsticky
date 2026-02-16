@@ -88,6 +88,16 @@ export class SQLiteDB {
     }
     // Ensure the default board always has correct slug/project_id (covers fresh and migrated DBs)
     this.db.exec(`UPDATE boards SET slug = 'main', project_id = 'default' WHERE id = 'default' AND slug = ''`);
+    // Fix any boards that ended up with empty slugs (use id as fallback, with suffix to avoid conflicts)
+    const emptySlugBoards = this.db.prepare(`SELECT id, project_id FROM boards WHERE slug = '' AND id != 'default'`).all() as { id: string; project_id: string }[];
+    for (const b of emptySlugBoards) {
+      let candidate = b.id;
+      let suffix = 2;
+      while (this.db.prepare(`SELECT 1 FROM boards WHERE project_id = ? AND slug = ?`).get(b.project_id, candidate)) {
+        candidate = `${b.id}-${suffix++}`;
+      }
+      this.db.prepare(`UPDATE boards SET slug = ? WHERE id = ?`).run(candidate, b.id);
+    }
 
     // Create unique index on (project_id, slug) for boards
     this.db.exec(`
@@ -259,6 +269,13 @@ export class SQLiteDB {
     return stmt.all() as Edge[];
   }
 
+  updateEdge(id: string, label: string): Edge | null {
+    const stmt = this.db.prepare('UPDATE edges SET label = ? WHERE id = ?');
+    const result = stmt.run(label, id);
+    if (result.changes === 0) return null;
+    return this.getEdge(id);
+  }
+
   deleteEdge(id: string): boolean {
     const stmt = this.db.prepare('DELETE FROM edges WHERE id = ?');
     const result = stmt.run(id);
@@ -421,7 +438,7 @@ export class SQLiteDB {
    */
 
   createBoard(id: string, name: string, projectId: string = 'default', slug?: string): Board {
-    const boardSlug = slug || id;
+    const boardSlug = slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || id;
     const stmt = this.db.prepare(`
       INSERT INTO boards (id, name, slug, project_id)
       VALUES (?, ?, ?, ?)
