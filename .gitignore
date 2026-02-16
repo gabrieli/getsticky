@@ -73,3 +73,7 @@ PHASE*.md
 
 # Ideas and brainstorming
 ideas/
+
+# Machine-specific configs
+server/claude-desktop-config*.json
+TDD-SETUP-SUMMARY.md

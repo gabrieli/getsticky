@@ -67,7 +67,7 @@ if (args.includes('--help') || args.includes('-h')) {
     --help, -h        Show this help message
 
   MCP Server:
-    claude mcp add getsticky -- npx getsticky mcp
+    claude mcp add getsticky npx getsticky mcp
 
     Or configure in .mcp.json:
     {

@@ -53,7 +53,7 @@ Tests the complete UI flow (coming soon):
 
 1. **Start Backend**
    ```bash
-   cd /Users/gabrielionescu/projects/getsticky/server
+   cd server
    npm run dev
    ```
 
@@ -63,7 +63,7 @@ Tests the complete UI flow (coming soon):
 
 3. **Run Integration Tests**
    ```bash
-   cd /Users/gabrielionescu/projects/getsticky/getsticky-app
+   cd getsticky-app
    npm run test:integration
    ```
 
@@ -141,6 +141,5 @@ Once these integration tests pass:
 
 ## Resources
 
-- Main testing guide: `/Users/gabrielionescu/projects/getsticky/getsticky-app/TESTING.md`
-- Integration test guide: `/Users/gabrielionescu/projects/getsticky/INTEGRATION-TEST-GUIDE.md`
-- Backend server: `/Users/gabrielionescu/projects/getsticky/server/`
+- Main testing guide: `getsticky-app/TESTING.md`
+- Backend server: `server/`

@@ -45,7 +45,7 @@ Then open **http://localhost:2528** in your browser.
 ### Connect Claude Code
 
 ```bash
-claude mcp add getsticky -- npx getsticky mcp
+claude mcp add getsticky npx getsticky mcp
 ```
 
 Or add manually to your project's `.mcp.json`:

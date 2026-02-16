@@ -246,13 +246,12 @@ describe('GetSticky Integration: WebSocket Flow', () => {
  * Running This Test
  *
  * 1. Start the backend server:
- *    cd /Users/gabrielionescu/projects/getsticky/server
- *    npm run dev
+ *    cd server && npm run dev
  *
  * 2. Ensure ANTHROPIC_API_KEY is set in backend environment
  *
  * 3. Run this specific test:
- *    cd /Users/gabrielionescu/projects/getsticky/getsticky-app
+ *    cd getsticky-app
  *    npm test -- src/__tests__/integration/websocket-flow.test.ts
  *
  * Note: This test makes real API calls to Claude and requires:
